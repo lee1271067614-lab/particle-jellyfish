@@ -1278,17 +1278,7 @@
       let px = cx + x1 * sc * zEff;
       let py = cy + y1 * sc * zEff;
 
-      if (mouseOn && gesture !== 'pinch') {
-        const dx = px - mx, dy = py - my;
-        const d2 = dx * dx + dy * dy;
-        const RR = 190;
-        if (d2 < RR * RR) {
-          const d = Math.sqrt(d2) + 0.001;
-          const f = 1 - d / RR;
-          const push = f * f * 46;
-          px += dx / d * push; py += dy / d * push;
-        }
-      }
+      // 光标/手指斥力已移除：不再把指针附近的粒子径向拨开（原会在鼠标靠近/手指长按处形成空洞）
       for (let ri = 0; ri < ripples.length; ri++) {
         const rp = ripples[ri];
         const dx = px - rp.x, dy = py - rp.y;
