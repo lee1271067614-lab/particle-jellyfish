@@ -1128,12 +1128,14 @@
     const focal = 1250 * Math.min(1, Math.max(0.62, Math.min(W, H) / 900 * 0.6 + 0.55));
     const camD = 1650 - Math.sin(time * 0.00007) * 190;      // slow dolly in / out
     const bZoom = 1 + Math.sin(time * 0.00009) * 0.035;      // breathing scale
-    const zEff = zoom * bZoom * (1 + jZoom) * introZoom;
+    const portrait = H > W * 1.06;                          // 竖屏判定（只影响竖屏，横屏/桌面不动）
+    const portraitScale = portrait ? 0.64 : 1;              // 竖屏缩到 0.64x，伞盖完整不贴边
+    const zEff = zoom * bZoom * (1 + jZoom) * introZoom * portraitScale;
     const lumEq = 0.95 + 0.06 * Math.sin(time * 0.00008 + 0.5);  // breathing luminance
     // 镜头微震：整世界层抖动（背景不抖 → 有“手持相机被撞一下”的实感）
     // 生命感：缓慢漂移路径（Lissajous）+ 收缩上浮（推进感）
-    const driftX = Math.sin(time * 0.00035) * 20 + Math.sin(time * 0.00013 + 1.7) * 7 + Math.sin(time * 0.0009) * 7;   // 缓慢游移 + 轻摆
-    const driftY = Math.cos(time * 0.00031) * 14 - 27 * swimSw;                                                        // 浮沉 + 收缩推进上浮
+    const driftX = (Math.sin(time * 0.00035) * 20 + Math.sin(time * 0.00013 + 1.7) * 7 + Math.sin(time * 0.0009) * 7) * (portrait ? 0.5 : 1);   // 缓慢游移 + 轻摆（竖屏减半防贴边）
+    const driftY = (Math.cos(time * 0.00031) * 14 - 27 * swimSw) * (portrait ? 0.7 : 1);                                                        // 浮沉 + 收缩推进上浮
     const cx = W * 0.5 + driftX + (Math.random() * 2 - 1) * jShake;
     const cy = H * 0.5 + driftY + (Math.random() * 2 - 1) * jShake + bodyLift;   // 漂移 + 推进 + J 升降
     // 生物荧光：偶发整伞盖大闪 + 打击瞬时高亮叠加
@@ -1315,7 +1317,7 @@
       else if (ty === 3) { glow = 1.4; baseA = 0.24; maxPx = 6; }
       else               { glow = b === B_CORE ? 1.9 : 1.75; baseA = 0.36; maxPx = b === B_CORE ? 8 : 11; }
       if (ty === 1) { baseA *= (1 + 0.7 * pa * pa); glow = 1.9 + 0.7 * pa; }   // 末端拖尾余晖更亮
-      let s = SIZE[i] * sc * zoom * glow * (0.72 + 0.5 * depth);
+      let s = SIZE[i] * sc * zoom * portraitScale * glow * (0.72 + 0.5 * depth);
       szA[i] = s < 1.2 ? 1.2 : s > maxPx ? maxPx : s;
 
       // 圣诞树灯串经验：每颗粒子独立节奏点亮 + 偶发高光闪烁，不整齐划一（比单一正弦更“有灯”感）
