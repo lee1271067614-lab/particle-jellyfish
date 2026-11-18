@@ -12,6 +12,8 @@
   button:active{filter:brightness(1.2)}
   #flip{margin-top:8px;background:#0f1a35;border-color:#2c4586}
   video{width:100%;max-width:380px;background:#000;border-radius:10px;margin-top:10px;display:block}
+  #inpcap{margin-top:10px;font-size:12px;color:#8fb4ff}
+  #inp{width:176px;height:auto;background:#000;border:1px solid #1d2b52;border-radius:8px;margin-top:4px;display:block}
   pre{white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.55;background:#0a1020;border:1px solid #1d2b52;border-radius:10px;padding:10px;margin-top:10px}
   .ok{color:#7cf39a}.bad{color:#ff8f8f}.warn{color:#ffd45e}
 </style>
@@ -21,27 +23,28 @@
 <button id="go">开始诊断</button>
 <button id="flip" hidden>切换前后摄像头（当前：前置）</button>
 <video id="v" playsinline muted autoplay></video>
-<pre id="out">点「开始诊断」，会自动试摄像头 + 手部模型，并把每一步结果列出来。</pre>
+<div id="inpcap" hidden>送进模型的就是这一张（预览，实际 256 宽）</div>
+<canvas id="inp" width="256" height="144" hidden></canvas>
+<pre id="out">点「开始诊断」，会依次试摄像头、手部模型，并用 GPU / CPU 两个后端各跑 5 秒，直接告诉你是哪个后端认出了手。</pre>
 <script type="module">
 const out = document.getElementById('out');
+const v = document.getElementById('v');
+const flipBtn = document.getElementById('flip');
+const inp = document.getElementById('inp');
+const inpCap = document.getElementById('inpcap');
+const icx = inp.getContext('2d');
 const lines = [];
+
 function render() {
   out.innerHTML = '';
   for (const it of lines) {
-    if (Array.isArray(it)) {
-      const e = document.createElement('span');
-      e.className = it[2] || '';
-      e.textContent = it[0] + ': ' + it[1] + '\n';
-      out.appendChild(e);
-    } else {
-      const e = document.createElement('span');
-      e.textContent = it + '\n';
-      out.appendChild(e);
-    }
+    const e = document.createElement('span');
+    e.className = it[2] || '';
+    e.textContent = it[0] + ': ' + it[1] + '\n';
+    out.appendChild(e);
   }
 }
-const add = (k, v, cls) => { lines.push([k, v, cls]); render(); };
-const addCls = add;
+const add = (k, val, cls) => { lines.push([k, val, cls]); render(); };
 
 function wsSimd() {
   try {
@@ -51,14 +54,13 @@ function wsSimd() {
   } catch (e) { return false; }
 }
 
-const v = document.getElementById('v');
-const flipBtn = document.getElementById('flip');
-let facing = 'user';            // 默认前置：手机举在面前挥手，后置往往照着房间 → 假阴性
+let facing = 'user';
 let stream = null;
-let vision = null, fileset = null, lm = null, usedDelegate = '';
+let vision = null, fileset = null;
 
 function labelFacing() {
   flipBtn.textContent = '切换前后摄像头（当前：' + (facing === 'user' ? '前置' : '后置') + '）';
+  v.style.transform = facing === 'user' ? 'scaleX(-1)' : 'none';
 }
 
 async function openCam() {
@@ -75,91 +77,39 @@ async function openCam() {
   return { w: v.videoWidth, h: v.videoHeight, fps: st.frameRate || '?', realFacing: st.facingMode || facing };
 }
 
-async function run() {
-  lines.length = 0;
-  out.textContent = '';
-  // 1) 环境
-  addCls('安全上下文 https', location.protocol + ' // isSecureContext=' + isSecureContext, isSecureContext ? 'ok' : 'bad');
-  addCls('UA', navigator.userAgent, '');
-  addCls('WASM SIMD', wsSimd() ? '支持' : '不支持（可能缺 nosimd 版本 wasm）', wsSimd() ? 'ok' : 'bad');
-  addCls('SharedArrayBuffer', (typeof SharedArrayBuffer !== 'undefined') ? '可用（多线程）' : '不可用（单线程）',
-    (typeof SharedArrayBuffer !== 'undefined') ? 'ok' : 'warn');
-
-  // 2) 摄像头
+async function measure(delegate, secs) {
+  let lm = null;
   try {
-    const info = await openCam();
-    addCls('摄像头', 'OK ' + info.w + 'x' + info.h + ' @' + info.fps + 'fps | 朝向=' + info.realFacing, 'ok');
-    addCls('视频比例', (v.videoWidth / v.videoHeight).toFixed(3) + '  (' + (v.videoWidth >= v.videoHeight ? '横屏' : '竖屏') + ')', '');
-    flipBtn.hidden = false; labelFacing();
+    const t0 = performance.now();
+    lm = await vision.HandLandmarker.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: './vendor/hand_landmarker.task', delegate },
+      runningMode: 'VIDEO', numHands: 1,
+      minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5
+    });
+    add('创建 ' + delegate, 'OK (' + Math.round(performance.now() - t0) + 'ms)', 'ok');
   } catch (e) {
-    addCls('摄像头', 'FAIL ' + e.name + ' ' + e.message, 'bad');
-    return;
+    add('创建 ' + delegate, 'FAIL ' + (e && (e.message || e)), 'bad');
+    return null;
   }
 
-  // 3) MediaPipe
-  if (!vision) {
-    try {
-      vision = await import('./vendor/mediapipe/vision_bundle.mjs');
-      addCls('加载 vision_bundle', 'OK', 'ok');
-    } catch (e) {
-      addCls('加载 vision_bundle', 'FAIL ' + e.message, 'bad');
-      return;
-    }
-    try {
-      fileset = await vision.FilesetResolver.forVisionTasks('./vendor/mediapipe/wasm');
-      addCls('初始化 wasm', 'OK', 'ok');
-    } catch (e) {
-      addCls('初始化 wasm', 'FAIL ' + (e && (e.message || e)), 'bad');
-      return;
-    }
-  }
-
-  const opts = (delegate) => ({
-    baseOptions: { modelAssetPath: './vendor/hand_landmarker.task', delegate },
-    runningMode: 'VIDEO', numHands: 1,
-    minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5
-  });
-  if (!lm) {
-    try {
-      const t0 = performance.now();
-      lm = await vision.HandLandmarker.createFromOptions(fileset, opts('GPU'));
-      usedDelegate = 'GPU';
-      addCls('创建 HandLandmarker', 'GPU OK (' + Math.round(performance.now() - t0) + 'ms)', 'ok');
-    } catch (eGpu) {
-      addCls('GPU 委派', 'FAIL ' + (eGpu && (eGpu.message || eGpu)), 'warn');
-      try {
-        const t0 = performance.now();
-        lm = await vision.HandLandmarker.createFromOptions(fileset, opts('CPU'));
-        usedDelegate = 'CPU';
-        addCls('创建 HandLandmarker', 'CPU OK (' + Math.round(performance.now() - t0) + 'ms)', 'ok');
-      } catch (eCpu) {
-        addCls('创建 HandLandmarker', 'CPU 也 FAIL ' + (eCpu && (eCpu.message || eCpu)), 'bad');
-        return;
-      }
-    }
-  }
-
-  // 4) 检测 5 秒
-  const cv = document.createElement('canvas');
   const ratio = v.videoWidth && v.videoHeight ? v.videoWidth / v.videoHeight : 16 / 9;
+  const cv = document.createElement('canvas');
   cv.width = 256; cv.height = Math.round(256 / ratio);
   const cx = cv.getContext('2d');
-  addCls('检测输入尺寸', cv.width + 'x' + cv.height + '（按视频比例，避免拉伸）', '');
+  inp.width = cv.width; inp.height = cv.height;
+  inp.hidden = false; inpCap.hidden = false;
 
-  let frames = 0, hits = 0, errs = 0, lastErr = '', best = 0;
-  let statusIdx = -1, lastStatusAt = 0;
-  const setStatus = (txt, cls) => {
-    if (statusIdx < 0) { lines.push([k0, txt, cls]); statusIdx = lines.length - 1; }
-    else { lines[statusIdx][1] = txt; lines[statusIdx][2] = cls; }
-    render();
-  };
-  const k0 = '实时';
-  const start = performance.now();
+  const k = '检测 ' + delegate;
+  lines.push([k, '准备中…', 'warn']);
+  const idx = lines.length - 1;
+  let frames = 0, hits = 0, errs = 0, best = 0, lastErr = '', last = 0;
+  const t0 = performance.now();
   await new Promise(resolve => {
     const tick = () => {
       const t = performance.now();
       try {
         cx.drawImage(v, 0, 0, cv.width, cv.height);
+        icx.drawImage(cv, 0, 0, inp.width, inp.height);
         const res = lm.detectForVideo(cv, t);
         frames++;
         if (res && res.landmarks && res.landmarks.length > 0) {
@@ -170,32 +120,86 @@ async function run() {
       } catch (e) {
         errs++; lastErr = (e && (e.message || e)) + '';
       }
-      if (t - lastStatusAt > 300 || frames === 1) {
-        lastStatusAt = t;
-        setStatus('帧=' + frames + ' 检测到手=' + hits + ' 最高置信=' + (best ? best.toFixed(2) : '—')
-          + ' 错误=' + errs + (lastErr ? ' 最近:' + lastErr : ''),
-          hits > 0 ? 'ok' : (errs ? 'bad' : 'warn'));
+      if (t - last > 250) {
+        last = t;
+        lines[idx][1] = '帧=' + frames + ' 检测到手=' + hits + ' 最高置信=' + (best ? best.toFixed(2) : '—')
+          + ' 错误=' + errs + (lastErr ? ' 最近:' + lastErr : '');
+        lines[idx][2] = hits > 0 ? 'ok' : (errs ? 'bad' : 'warn');
+        render();
       }
-      if (t - start < 5000) requestAnimationFrame(tick); else resolve();
+      if (t - t0 < secs * 1000) requestAnimationFrame(tick); else resolve();
     };
     requestAnimationFrame(tick);
   });
-  setStatus('帧=' + frames + ' 检测到手=' + hits + ' 最高置信=' + (best ? best.toFixed(2) : '—')
-    + ' 错误=' + errs, hits > 0 ? 'ok' : (errs ? 'bad' : 'warn'));
+  lines[idx][1] = '帧=' + frames + ' 检测到手=' + hits + ' 最高置信=' + (best ? best.toFixed(2) : '—') + ' 错误=' + errs;
+  lines[idx][2] = hits > 0 ? 'ok' : (errs ? 'bad' : 'warn');
+  render();
+  try { lm.close(); } catch (_) {}
+  return { frames, hits, best, errs };
+}
 
-  addCls('=== 结论 ===', hits > 0 ? '能识别到手（' + hits + '/' + frames + ' 帧）' : '5 秒内没检出手！',
-    hits > 0 ? 'ok' : 'bad');
-  addCls('委派', usedDelegate, '');
-  if (hits === 0) {
-    addCls('排查', '① 确认开的是前置（画面里能看到自己）；② 手离镜头 40–60cm、整只手在框内；'
-      + '③ 别逆光，脸/手要亮；④ 停住 1–2 秒别晃。', 'warn');
+async function run() {
+  lines.length = 0;
+  out.textContent = '';
+  flipBtn.hidden = true;
+
+  add('安全上下文', location.protocol + ' // isSecureContext=' + isSecureContext, isSecureContext ? 'ok' : 'bad');
+  add('UA', navigator.userAgent, '');
+  add('WASM SIMD', wsSimd() ? '支持' : '不支持（可能缺 nosimd 版本 wasm）', wsSimd() ? 'ok' : 'bad');
+  add('SharedArrayBuffer', (typeof SharedArrayBuffer !== 'undefined') ? '可用（多线程）' : '不可用（单线程）',
+    (typeof SharedArrayBuffer !== 'undefined') ? 'ok' : 'warn');
+
+  try {
+    const info = await openCam();
+    add('摄像头', 'OK ' + info.w + 'x' + info.h + ' @' + info.fps + 'fps | 朝向=' + info.realFacing, 'ok');
+    add('视频比例', (v.videoWidth / v.videoHeight).toFixed(3) + '  (' + (v.videoWidth >= v.videoHeight ? '横屏' : '竖屏') + ')', '');
+    flipBtn.hidden = false; labelFacing();
+  } catch (e) {
+    add('摄像头', 'FAIL ' + e.name + ' ' + e.message, 'bad');
+    return;
+  }
+
+  if (!vision) {
+    try {
+      vision = await import('./vendor/mediapipe/vision_bundle.mjs');
+      add('加载 vision_bundle', 'OK', 'ok');
+    } catch (e) {
+      add('加载 vision_bundle', 'FAIL ' + e.message, 'bad');
+      return;
+    }
+    try {
+      fileset = await vision.FilesetResolver.forVisionTasks('./vendor/mediapipe/wasm');
+      add('初始化 wasm', 'OK', 'ok');
+    } catch (e) {
+      add('初始化 wasm', 'FAIL ' + (e && (e.message || e)), 'bad');
+      return;
+    }
+  }
+
+  const order = /[?&]cpu=1\b/.test(location.search) ? ['CPU'] : ['GPU', 'CPU'];
+  add('开始实测', '手对着镜头、整只手入镜、保持约 10 秒不动（每个后端 5 秒）', 'warn');
+  const res = {};
+  for (const d of order) res[d] = await measure(d, 5);
+
+  const gpu = res.GPU, cpu = res.CPU;
+  const win = (gpu && gpu.hits > 0) ? 'GPU' : ((cpu && cpu.hits > 0) ? 'CPU' : null);
+  if (win) {
+    add('=== 结论 ===', '能识别到手：' + win + '（' + res[win].hits + ' 帧，最高置信 ' + res[win].best.toFixed(2) + '）', 'ok');
+    if (gpu && gpu.hits === 0 && cpu && cpu.hits > 0) {
+      add('关键发现', 'GPU 后端「能创建但一帧都不出」＝静默失效；推理必须走 CPU', 'bad');
+    }
+  } else {
+    add('=== 结论 ===', '两个后端都没检出手！', 'bad');
+    add('排查', '① 确认画面里是自己的手（不是房间）；② 手离 40–60cm、整只手在框内；③ 别逆光；④ 停住别晃。'
+      + ' 上面那张「送进模型的画面」如果发黑或只拍到角落，就是取帧问题。', 'warn');
   }
 }
 
-document.getElementById('go').addEventListener('click', () => run().catch(e => addCls('异常', String(e && (e.stack || e)), 'bad')));
+document.getElementById('go').addEventListener('click', () => run().catch(e => add('异常', String(e && (e.stack || e)), 'bad')));
 flipBtn.addEventListener('click', () => {
   facing = (facing === 'user') ? 'environment' : 'user';
-  run().catch(e => addCls('异常', String(e && (e.stack || e)), 'bad'));
+  labelFacing();
+  run().catch(e => add('异常', String(e && (e.stack || e)), 'bad'));
 });
 
 if (/[?&]auto=1/.test(location.search)) setTimeout(() => document.getElementById('go').click(), 400);
