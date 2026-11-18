@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+<title>摄像头手势诊断</title>
+<style>
+  html,body{margin:0;background:#05070f;color:#dfe9ff;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+  body{padding:12px 12px 40px}
+  h2{font-size:16px;margin:4px 0 10px;letter-spacing:.05em}
+  button{width:100%;padding:14px;border-radius:12px;border:1px solid #3a5aa8;background:#16224a;color:#dfe9ff;font-size:16px}
+  button:active{filter:brightness(1.2)}
+  video{width:100%;max-width:380px;background:#000;border-radius:10px;margin-top:10px;display:block}
+  pre{white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.55;background:#0a1020;border:1px solid #1d2b52;border-radius:10px;padding:10px;margin-top:10px}
+  .ok{color:#7cf39a}.bad{color:#ff8f8f}.warn{color:#ffd45e}
+</style>
+</head>
+<body>
+<h2>摄像头手势诊断</h2>
+<button id="go">开始诊断</button>
+<video id="v" playsinline muted autoplay></video>
+<pre id="out">点「开始诊断」，会自动试摄像头 + 手部模型，并把每一步结果列出来。</pre>
+<script type="module">
+const out = document.getElementById('out');
+const lines = [];
+const add = (k, v, cls) => { lines.push(k + ': ' + v); out.innerHTML = lines.map(s => s).join('\n'); };
+const addCls = (k, v, cls) => {
+  const span = document.createElement('span');
+  lines.push([k, v, cls]);
+  out.innerHTML = '';
+  for (const it of lines) {
+    if (Array.isArray(it)) {
+      const e = document.createElement('span');
+      e.className = it[2] || '';
+      e.textContent = it[0] + ': ' + it[1] + '\n';
+      out.appendChild(e);
+    } else {
+      const e = document.createElement('span');
+      e.textContent = it + '\n';
+      out.appendChild(e);
+    }
+  }
+};
+
+function wsSimd() {
+  try {
+    return WebAssembly.validate(new Uint8Array([
+      0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,10,1,8,0,65,0,253,15,253,98,11
+    ]));
+  } catch (e) { return false; }
+}
+
+document.getElementById('go').addEventListener('click', async () => {
+  out.textContent = '';
+  // 1) 环境
+  addCls('安全上下文 https', location.protocol + ' // isSecureContext=' + isSecureContext, isSecureContext ? 'ok' : 'bad');
+  addCls('UA', navigator.userAgent, '');
+  addCls('WASM SIMD', wsSimd() ? '支持' : '不支持（可能缺 nosimd 版本 wasm）', wsSimd() ? 'ok' : 'bad');
+  addCls('SharedArrayBuffer', (typeof SharedArrayBuffer !== 'undefined') ? '可用（多线程）' : '不可用（单线程）',
+    (typeof SharedArrayBuffer !== 'undefined') ? 'ok' : 'warn');
+
+  // 2) 摄像头
+  const v = document.getElementById('v');
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    v.srcObject = stream;
+    await v.play();
+    await new Promise(r => setTimeout(r, 600));
+    const st = stream.getVideoTracks()[0].getSettings();
+    addCls('摄像头', 'OK ' + v.videoWidth + 'x' + v.videoHeight + ' @' + (st.frameRate || '?') + 'fps', 'ok');
+    addCls('视频比例', (v.videoWidth / v.videoHeight).toFixed(3) + '  (' + (v.videoWidth >= v.videoHeight ? '横屏' : '竖屏') + ')', '');
+  } catch (e) {
+    addCls('摄像头', 'FAIL ' + e.name + ' ' + e.message, 'bad');
+    return;
+  }
+
+  // 3) MediaPipe
+  let vision, fileset;
+  try {
+    vision = await import('./vendor/mediapipe/vision_bundle.mjs');
+    addCls('加载 vision_bundle', 'OK', 'ok');
+  } catch (e) {
+    addCls('加载 vision_bundle', 'FAIL ' + e.message, 'bad');
+    return;
+  }
+  try {
+    fileset = await vision.FilesetResolver.forVisionTasks('./vendor/mediapipe/wasm');
+    addCls('初始化 wasm', 'OK', 'ok');
+  } catch (e) {
+    addCls('初始化 wasm', 'FAIL ' + (e && (e.message || e)), 'bad');
+    return;
+  }
+
+  const opts = (delegate) => ({
+    baseOptions: { modelAssetPath: './vendor/hand_landmarker.task', delegate },
+    runningMode: 'VIDEO', numHands: 1,
+    minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5
+  });
+  let lm = null, usedDelegate = '';
+  try {
+    const t0 = performance.now();
+    lm = await vision.HandLandmarker.createFromOptions(fileset, opts('GPU'));
+    usedDelegate = 'GPU';
+    addCls('创建 HandLandmarker', 'GPU OK (' + Math.round(performance.now() - t0) + 'ms)', 'ok');
+  } catch (eGpu) {
+    addCls('GPU 委派', 'FAIL ' + (eGpu && (eGpu.message || eGpu)), 'warn');
+    try {
+      const t0 = performance.now();
+      lm = await vision.HandLandmarker.createFromOptions(fileset, opts('CPU'));
+      usedDelegate = 'CPU';
+      addCls('创建 HandLandmarker', 'CPU OK (' + Math.round(performance.now() - t0) + 'ms)', 'ok');
+    } catch (eCpu) {
+      addCls('创建 HandLandmarker', 'CPU 也 FAIL ' + (eCpu && (eCpu.message || eCpu)), 'bad');
+      return;
+    }
+  }
+
+  // 4) 检测 5 秒
+  const cv = document.createElement('canvas');
+  const ratio = v.videoWidth && v.videoHeight ? v.videoWidth / v.videoHeight : 16 / 9;
+  cv.width = 256; cv.height = Math.round(256 / ratio);
+  const cx = cv.getContext('2d');
+  addCls('检测输入尺寸', cv.width + 'x' + cv.height + '（按视频比例，避免拉伸）', '');
+
+  let frames = 0, hits = 0, errs = 0, lastErr = '';
+  const start = performance.now();
+  await new Promise(resolve => {
+    const tick = () => {
+      const t = performance.now();
+      try {
+        cx.drawImage(v, 0, 0, cv.width, cv.height);
+        const res = lm.detectForVideo(cv, t);
+        frames++;
+        if (res && res.landmarks && res.landmarks.length > 0) hits++;
+      } catch (e) {
+        errs++; lastErr = (e && (e.message || e)) + '';
+      }
+      addCls('实时', '帧=' + frames + ' 检测到手=' + hits + ' 错误=' + errs + (lastErr ? ' 最近:' + lastErr : ''),
+        hits > 0 ? 'ok' : (errs ? 'bad' : 'warn'));
+      if (t - start < 5000) requestAnimationFrame(tick); else resolve();
+    };
+    requestAnimationFrame(tick);
+  });
+
+  addCls('=== 结论 ===', hits > 0 ? '能识别到手（' + hits + '/' + frames + ' 帧）' : '5 秒内没检出手！',
+    hits > 0 ? 'ok' : 'bad');
+  addCls('委派', usedDelegate, '');
+});
+</script>
+</body>
+</html>
