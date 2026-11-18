@@ -1862,7 +1862,7 @@
     let order;
     if (forceDelegate === 'CPU' || forceCpu) order = ['CPU'];
     else if (forceDelegate === 'GPU') order = ['GPU', 'CPU'];
-    else if (isIOS) order = ['CPU', 'GPU'];
+    else if (IS_MOBILE) order = ['CPU', 'GPU'];   // 手机（iOS/安卓）统一优先 CPU：部分机型 GPU delegate「能创建但静默 0 命中」，仅靠异常无法切换
     else order = ['GPU', 'CPU'];
     let lm = null, lastErr = null;
     for (const d of order) {
