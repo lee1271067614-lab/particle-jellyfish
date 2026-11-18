@@ -147,6 +147,8 @@ document.getElementById('go').addEventListener('click', async () => {
     hits > 0 ? 'ok' : 'bad');
   addCls('委派', usedDelegate, '');
 });
+
+if (/[?&]auto=1/.test(location.search)) setTimeout(() => document.getElementById('go').click(), 400);
 </script>
 </body>
 </html>
