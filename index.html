@@ -1764,11 +1764,43 @@
     pinching: false, fisting: false, opening: false,       // hysteresis latches
     palmPrev: null, palmT: 0, anglePrev: null, sizePrev: 0, pinchSm: 0,
     lastSeen: 0, burstAt: 0, lastDetect: 0, fistReleaseAt: -1e9, waveAt: -1e9,
-    videoUrl: null, fileMode: false
+    videoUrl: null, fileMode: false,
+    delegateUsed: '', isIOS: false, detErr: 0, delegateRetried: false,
+    vision: null, fileset: null, lastScore: null, dbgT: 0, dbgFrames: 0, dbgRate: 0
   };
 
   function camHint(html) { camUI.hint.innerHTML = html; }
   function vdist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+  // ---- 手机端现场诊断（?mddbg=1）：在摄像头小窗叠一行 推理后端/检测频率/分辨率/手部置信度，便于真机定位 ----
+  const camDbg = /[?&]mddbg=1\b/.test(location.search);
+  let camDbgEl = null;
+  function updateCamDbg(v) {
+    if (!camDbg) return;
+    if (!camDbgEl) {
+      camDbgEl = document.createElement('div');
+      camDbgEl.style.cssText = 'position:absolute;left:6px;top:24px;z-index:4;font:10px/1.35 monospace;color:#9fe6ff;opacity:.92;text-shadow:0 1px 3px #000;pointer-events:none;white-space:pre';
+      camUI.wrap.appendChild(camDbgEl);
+    }
+    const now = performance.now();
+    cam.dbgFrames = (cam.dbgFrames || 0) + 1;
+    if (!cam.dbgT) cam.dbgT = now;
+    if (now - cam.dbgT > 500) { cam.dbgRate = Math.round(cam.dbgFrames * 1000 / (now - cam.dbgT)); cam.dbgFrames = 0; cam.dbgT = now; }
+    camDbgEl.textContent = '后端 ' + (cam.delegateUsed || '?') + ' | ' + (cam.dbgRate || 0) + '/s | '
+      + (v.videoWidth || 0) + 'x' + (v.videoHeight || 0) + ' | 手 ' + (cam.lastScore == null ? '—' : cam.lastScore.toFixed(2));
+  }
+
+  // ---- 推理自愈：连续推理异常时换一个 delegate 重建一次（覆盖部分手机 GPU delegate 静默失效）----
+  async function retryDelegate() {
+    const alt = cam.delegateUsed === 'CPU' ? 'GPU' : 'CPU';
+    try {
+      cam.landmarker = await createLandmarker(cam.vision, cam.fileset, alt);
+      cam.detErr = 0;
+      camHint('手势：推理已切换 <b>' + alt + '</b>，寻找手部');
+    } catch (e) {
+      camHint('手势：推理异常（' + ((e && e.message) || e) + '）');
+    }
+  }
 
   camUI.btn.addEventListener('click', startCamera);
   camUI.close.addEventListener('click', stopCamera);
@@ -1812,17 +1844,32 @@
   });
   camUI.btn.addEventListener('click', () => ensureAudio());   // 用户手势内创建/恢复音频上下文
 
-  async function createLandmarker(vision, fileset) {
+  async function createLandmarker(vision, fileset, forceDelegate) {
     const mk = delegate => vision.HandLandmarker.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: './vendor/hand_landmarker.task', delegate: delegate },
       runningMode: 'VIDEO', numHands: 1,   // 玩法只用一只手 → 单手下推理量减半，显著减轻主线程/显卡负担
-      minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5
+      minHandDetectionConfidence: IS_MOBILE ? 0.4 : 0.5,
+      minHandPresenceConfidence: IS_MOBILE ? 0.4 : 0.5,
+      minTrackingConfidence: IS_MOBILE ? 0.45 : 0.5
     });
     // GPU 推理会和 Canvas 渲染抢同一块显卡（本机同时跑着放大/壁纸/推流时尤其明显）。
     // ?mdcpu=1 强制 CPU 推理（WASM 多线程），与 GPU 渲染并行，弱显卡上反而更流畅。
+    // iOS Safari 的 GPU delegate 常静默失效 → 优先 CPU，最稳；安卓/桌面仍优先 GPU，失败回退 CPU。
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    cam.isIOS = isIOS;
     const forceCpu = /[?&]mdcpu=1\b/.test(location.search);
-    if (forceCpu) { try { return await mk('CPU'); } catch (_) {} }
-    try { return await mk('GPU'); } catch (e) { return await mk('CPU'); }
+    let order;
+    if (forceDelegate === 'CPU' || forceCpu) order = ['CPU'];
+    else if (forceDelegate === 'GPU') order = ['GPU', 'CPU'];
+    else if (isIOS) order = ['CPU', 'GPU'];
+    else order = ['GPU', 'CPU'];
+    let lm = null, lastErr = null;
+    for (const d of order) {
+      try { lm = await mk(d); cam.delegateUsed = d; break; } catch (e) { lastErr = e; }
+    }
+    if (!lm) throw lastErr || new Error('createLandmarker failed');
+    return lm;
   }
 
   // ---- 摄像头设备列表：填下拉，优先还原上次选择 → 其次 OBS → 其次第一个 ----
@@ -1886,6 +1933,7 @@
     if (cam.landmarker) return cam.landmarker;
     const vision = await import('./vendor/mediapipe/vision_bundle.mjs');
     const fileset = await vision.FilesetResolver.forVisionTasks('./vendor/mediapipe/wasm');
+    cam.vision = vision; cam.fileset = fileset;
     cam.landmarker = await createLandmarker(vision, fileset);
     return cam.landmarker;
   }
@@ -1896,7 +1944,10 @@
     if (cam.active || cam.loading) return;
     cam.loading = true;
     camUI.btn.textContent = '启动中…';
-    const baseVC = { width: { ideal: 1280 }, height: { ideal: 720 } };   // 贴近 OBS 原生 1280×720，避免小尺寸协商出黑帧
+    // 手机：前置摄像头（facingMode user）+ 较低分辨率，解码/推理更稳更快；桌面保持 1280×720 贴近 OBS 原生
+    const baseVC = IS_MOBILE
+      ? { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: { ideal: 'user' } }
+      : { width: { ideal: 1280 }, height: { ideal: 720 } };   // 贴近 OBS 原生 1280×720，避免小尺寸协商出黑帧
     const tryGet = (id) => {
       const vc = { ...baseVC };
       if (id) vc.deviceId = { exact: id };
@@ -1919,6 +1970,8 @@
       if (cam.videoUrl) { URL.revokeObjectURL(cam.videoUrl); cam.videoUrl = null; }
       camUI.video.removeAttribute('src'); camUI.video.loop = false; cam.fileMode = false;
       camUI.video.srcObject = stream;
+      // iOS：先把 video 显示出来再播放；对隐藏 video 取帧常拿到空画面 → 检测不到手
+      camUI.wrap.classList.add('on');
       await camUI.video.play();
       await populateCams(true);   // 授权后设备名才可见 → 刷新列表（不覆盖已锁定的选择）
 
@@ -1960,6 +2013,7 @@
     } catch (err) {
       cam.loading = false;
       if (cam.stream) { cam.stream.getTracks().forEach(t => t.stop()); cam.stream = null; }
+      camUI.wrap.classList.remove('on');
       camUI.btn.textContent = '✋ 手势控制';
       camHint('摄像头打开失败（' + ((err && (err.name || err.message)) || '') + '），已回退鼠标');
       console.warn('[hand] init failed:', err);
@@ -1981,6 +2035,7 @@
     cam.handActive = false;
     cam.pinching = cam.fisting = cam.opening = false;
     cam.palmPrev = cam.anglePrev = null; cam.sizePrev = 0; cam.scaleBase = 0; cam.pinchSm = 0; cam.lastDetect = 0;
+    cam.delegateUsed = ''; cam.detErr = 0; cam.delegateRetried = false; cam.lastScore = null; cam.vision = null; cam.fileset = null;
     camCtx.clearRect(0, 0, camUI.canvas.width, camUI.canvas.height);
     gatherTarget = 0;
     camUI.wrap.classList.remove('on');
@@ -2003,16 +2058,33 @@
         let res = null;
         try {
           if (!cam.detCv) { cam.detCv = document.createElement('canvas'); cam.detCv.width = 256; cam.detCv.height = 192; cam.detCtx = cam.detCv.getContext('2d'); }
-          cam.detCtx.drawImage(v, 0, 0, 256, 192);
+          if (IS_MOBILE) {
+            // 手机竖屏/不同宽高比：等比缩放 + 居中留黑，避免把手形压扁导致检不出
+            const vw = v.videoWidth || 640, vh = v.videoHeight || 480;
+            const s = Math.min(256 / vw, 192 / vh);
+            const tw = Math.round(vw * s), th = Math.round(vh * s);
+            cam.detCtx.fillStyle = '#000'; cam.detCtx.fillRect(0, 0, 256, 192);
+            cam.detCtx.drawImage(v, (256 - tw) >> 1, (192 - th) >> 1, tw, th);
+          } else {
+            cam.detCtx.drawImage(v, 0, 0, 256, 192);
+          }
           res = cam.landmarker.detectForVideo(cam.detCv, t);
-        } catch (_) {}
+          cam.detErr = 0;
+        } catch (e) {
+          cam.detErr = (cam.detErr || 0) + 1;
+          if (cam.detErr === 8 && !cam.delegateRetried) { cam.delegateRetried = true; retryDelegate(); }   // 自愈：换 delegate 一次
+          else if (cam.detErr === 40) { camHint('手势：推理异常（' + ((e && e.message) || e) + '）'); }
+        }
         handleHand(res, t);
+        updateCamDbg(v);
       }
     }
     cam.rafId = requestAnimationFrame(loopCamera);
   }
 
   function handleHand(res, t) {
+    const hsArr = res && (res.handedness || res.handednesses);
+    cam.lastScore = (hsArr && hsArr[0] && hsArr[0][0]) ? hsArr[0][0].score : null;
     const hands = [];
     if (res && res.landmarks && res.landmarks.length) {
       for (let hi = 0; hi < res.landmarks.length && hi < 2; hi++) {
