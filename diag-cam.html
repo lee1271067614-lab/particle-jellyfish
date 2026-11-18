@@ -76,6 +76,7 @@ async function openCam() {
 }
 
 async function run() {
+  lines.length = 0;
   out.textContent = '';
   // 1) 环境
   addCls('安全上下文 https', location.protocol + ' // isSecureContext=' + isSecureContext, isSecureContext ? 'ok' : 'bad');
