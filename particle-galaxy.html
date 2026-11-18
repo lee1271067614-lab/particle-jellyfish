@@ -1,0 +1,2159 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>深海水母</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #02030a; overflow: hidden; }
+  #c { display: block; position: fixed; inset: 0; cursor: grab; touch-action: none; }
+  #c.drag { cursor: grabbing; }
+
+  .title {
+    position: fixed; left: 44px; top: 38px; pointer-events: none; user-select: none;
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .title h1 {
+    margin: 0; padding-right: .42em;
+    font-size: clamp(20px, 2.3vw, 30px); font-weight: 300; letter-spacing: .42em;
+    background: linear-gradient(118deg, #ffffff 0%, #c8fff4 46%, #6fd8ff 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 0 26px rgba(90,230,220,.32));
+  }
+  .title .rule {
+    width: 48px; height: 1px; margin: 15px 0 11px;
+    background: linear-gradient(90deg, rgba(160,190,255,.95), rgba(160,190,255,0));
+  }
+  .title .sub {
+    font-size: 10px; font-weight: 400; letter-spacing: .62em;
+    color: #8095c8; opacity: .92; padding-left: 2px;
+  }
+
+  @media (max-width: 560px) {
+    .title { left: 24px; top: 24px; }
+  }
+
+  /* ---- camera hand-gesture layer ---- */
+  .gesture-btn {
+    position: fixed; right: 24px; bottom: 24px; z-index: 20;
+    padding: 10px 17px; border-radius: 999px; cursor: pointer;
+    font-family: -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size: 12.5px; letter-spacing: .1em; color: #dfe9ff; white-space: nowrap;
+    background: rgba(15,21,40,.5); border: 1px solid rgba(130,160,255,.28);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    box-shadow: 0 8px 30px rgba(18,28,78,.4); transition: filter .2s;
+  }
+  .gesture-btn:hover { filter: brightness(1.15); }
+  .gesture-btn.hidden { display: none; }
+  .sfx-btn { right: 24px; bottom: 70px; }
+
+  /* 摄像头设备选择（常驻可见，运行中也能切；自动识别到 OBS 会优先，手动选过则永久记住）*/
+  .cam-pick {
+    position: fixed; right: 24px; bottom: 118px; z-index: 20;
+    min-width: 158px; max-width: 210px; padding: 8px 10px; border-radius: 10px;
+    background: rgba(12,18,34,.82); color: #cfe0ff; cursor: pointer;
+    border: 1px solid rgba(130,160,255,.28); outline: none;
+    font-size: 12px; font-family: -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    box-shadow: 0 8px 24px rgba(10,16,40,.5); transition: opacity .2s;
+  }
+  .cam-pick:hover { border-color: rgba(150,190,255,.5); }
+  .cam-pick.hidepick { display: none; }
+  .sfx-btn.off { opacity: .55; }
+
+  .camera {
+    position: fixed; right: 22px; bottom: 22px; width: 208px; z-index: 20;
+    border-radius: 14px; overflow: hidden; display: none;
+    background: #05070f; border: 1px solid rgba(130,160,255,.22);
+    box-shadow: 0 12px 46px rgba(10,16,40,.55);
+    font-family: -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  }
+  .camera.on { display: block; }
+  .camera video {
+    display: block; width: 208px; height: 156px; object-fit: cover;
+    transform: scaleX(-1); background: #05070f;
+  }
+  .camera canvas {
+    position: absolute; inset: 0; width: 208px; height: 156px;
+    pointer-events: none;
+  }
+  .cam-head {
+    position: absolute; left: 10px; top: 8px; z-index: 2;
+    font-size: 10px; letter-spacing: .22em; color: #cfe0ff; opacity: .92;
+    text-shadow: 0 1px 6px rgba(0,0,0,.85); pointer-events: none;
+  }
+  .cam-hint {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+    padding: 6px 10px; font-size: 11px; letter-spacing: .06em; color: #dfe9ff;
+    background: linear-gradient(0deg, rgba(4,7,16,.9), rgba(4,7,16,0));
+    pointer-events: none;
+  }
+  .cam-hint b { color: #8fd0ff; font-weight: 600; }
+  .cam-close {
+    position: absolute; right: 7px; top: 6px; z-index: 3; cursor: pointer;
+    width: 20px; height: 20px; line-height: 19px; text-align: center;
+    border-radius: 50%; font-size: 12px; color: #cdd9ff;
+    background: rgba(20,28,54,.65); border: 1px solid rgba(130,160,255,.25);
+  }
+  .cam-close:hover { background: rgba(40,54,96,.85); }
+
+  /* 开场提示语（由 JS 控制淡入淡出）*/
+  .intro-tag {
+    position: fixed; left: 0; right: 0; top: 63%; text-align: center; z-index: 15;
+    font-family: -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size: 15px; letter-spacing: .42em; color: #bfe6ff; opacity: 0;
+    text-shadow: 0 2px 18px rgba(90,180,255,.55); pointer-events: none;
+  }
+
+  /* ================= 手机端适配（安全区 + 触控尺寸 + PiP 移到右上）================= */
+  @media (max-width: 820px), (pointer: coarse) {
+    .title { left: calc(18px + env(safe-area-inset-left)); top: calc(18px + env(safe-area-inset-top)); }
+    .title h1 { font-size: clamp(18px, 5.4vw, 26px); letter-spacing: .28em; }
+    .title .rule { margin: 11px 0 8px; }
+    .title .sub { letter-spacing: .42em; }
+    .gesture-btn { right: calc(12px + env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom)); font-size: 12px; padding: 9px 14px; }
+    .sfx-btn { right: calc(12px + env(safe-area-inset-right)); bottom: calc(62px + env(safe-area-inset-bottom)); }
+    .cam-pick { right: calc(12px + env(safe-area-inset-right)); bottom: calc(108px + env(safe-area-inset-bottom)); min-width: 120px; max-width: 54vw; font-size: 11px; padding: 7px 9px; }
+    /* 摄像头小窗移到右上角，别和底部按钮挤 */
+    .camera { top: calc(12px + env(safe-area-inset-top)); right: calc(12px + env(safe-area-inset-right)); bottom: auto; width: 126px; }
+    .camera video, .camera canvas { width: 126px; height: 94px; }
+    .intro-tag { font-size: 13px; letter-spacing: .28em; top: 60%; }
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="title">
+  <h1>深海水母</h1>
+  <div class="rule"></div>
+  <div class="sub">生物荧光 · 幽蓝深渊</div>
+</div>
+<div id="introTag" class="intro-tag">握拳，让它炸开</div>
+<button id="gestureBtn" class="gesture-btn">✋ 手势控制</button>
+<button id="sfxBtn" class="gesture-btn sfx-btn" title="开关打击感音效">🔊 音效</button>
+<select id="camPick" class="cam-pick hidepick" title="选择摄像头（可指定 OBS Virtual Camera）"></select>
+<div id="gfx" class="camera">
+  <div class="cam-head">手势识别</div>
+  <video id="camVideo" playsinline muted></video>
+  <canvas id="camCanvas"></canvas>
+  <div id="camHint" class="cam-hint">手势：<b>等待手部</b></div>
+  <div id="camClose" class="cam-close">✕</div>
+</div>
+<script>
+(() => {
+  "use strict";
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  let W = 0, H = 0, DPR = 1;
+
+  // ---- 手机端/触屏识别：手机自动降粒子量、抬 DPR、放大触控按钮（一套代码手机/电脑通用）----
+  const IS_MOBILE = (() => {
+    try {
+      const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+      const ua = /Mobi|Android|iPhone|iPad|iPod|HarmonyOS|Phone/i.test(navigator.userAgent);
+      const small = Math.min(window.innerWidth || 9999, window.innerHeight || 9999) < 820;
+      return ua || (coarse && small);
+    } catch (_) { return false; }
+  })();
+  try { if (IS_MOBILE) document.documentElement.classList.add('is-mobile'); } catch (_) {}
+
+  // ---- 电影级后处理：半分辨率 Bloom 柔辉 + 爆发 RGB 色散 + 胶片颗粒 ----
+  const BLOOM_BASE = !/[?&]nobloom=1\b/.test(location.search);   // 泛光基线（?nobloom=1 可关；自适应降档后可按此恢复）
+  let bloomCv = null, bloomCtx = null, bloomOn = BLOOM_BASE;   // 自适应降级或 ?nobloom=1 可关
+  let grainCv = null, grainPat = null;
+  function buildGrain() {
+    const S = 128; grainCv = document.createElement('canvas'); grainCv.width = grainCv.height = S;
+    const g = grainCv.getContext('2d'); const img = g.createImageData(S, S); const d = img.data;
+    for (let i = 0; i < d.length; i += 4) { const v = (Math.random() * 255) | 0; d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = 255; }
+    g.putImageData(img, 0, 0);
+    grainPat = ctx.createPattern(grainCv, 'repeat');
+  }
+  let bgGrad = null, bgCv = null, hazeCv = null, vigCv = null, nebulaGrads = null, coreHaloGrad = null, nucleusGrad = null, vignetteGrad = null, bucketFill = [];
+
+  function resize() {
+    // 画质优先：内部渲染上限提到 1920x1080（用户 2560x1440 屏按 0.75 倍渲染再拉伸），
+    // 明显比 1280x720 清晰；性能不足时由自适应降档兜底帧率。?maxw= 可覆盖调试。
+    // 手机：retina 屏 DPR 封顶 2（够清晰又不至于太重）；桌面维持原策略
+    DPR = IS_MOBILE ? Math.min(window.devicePixelRatio || 1, 2)
+                    : ((window.innerWidth < 1400) ? Math.min(window.devicePixelRatio || 1, 1.25) : 1);
+    W = window.innerWidth; H = window.innerHeight;
+    // 手机屏窄，内部上限按 1440 宽封顶即可（手机分辨率小，天然够用）
+    const MAX_W = IS_MOBILE ? 1440 : 1920, MAX_H = IS_MOBILE ? 1440 : 1080;   // ?maxw= 可覆盖调试
+    const mwM = /[?&]maxw=([0-9]+)/i.exec(location.search); const MW = mwM ? parseInt(mwM[1], 10) : MAX_W;
+    let scale = DPR;
+    if (W * scale > MW) scale = MW / W;
+    if (H * scale > MAX_H) scale = Math.min(scale, MAX_H / H);
+    if (scale < 0.5) scale = 0.5;                    // 保底，别糊成马赛克
+    DPR = scale;
+    canvas.width = Math.max(2, Math.floor(W * DPR)); canvas.height = Math.max(2, Math.floor(H * DPR));
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    bgGrad = ctx.createRadialGradient(W * 0.5, H * 0.5 * 0.92, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.78);
+    bgGrad.addColorStop(0, '#070a16');
+    bgGrad.addColorStop(0.5, '#03040c');
+    bgGrad.addColorStop(1, '#010206');
+    // 把整屏静态背景预渲染成位图：逐帧直接 blit，避免每帧重新栅格化一次全屏径向渐变
+    if (!bgCv) bgCv = document.createElement('canvas');
+    bgCv.width = canvas.width; bgCv.height = canvas.height;
+    { const bc = bgCv.getContext('2d'); bc.setTransform(DPR, 0, 0, DPR, 0, 0);
+      const b2 = bc.createRadialGradient(W * 0.5, H * 0.5 * 0.92, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.78);
+      b2.addColorStop(0, '#070a16'); b2.addColorStop(0.5, '#03040c'); b2.addColorStop(1, '#010206');
+      bc.fillStyle = b2; bc.fillRect(0, 0, W, H); }
+    // 顶部散射雾：漂移极慢（周期约千秒级），预渲染成静态位图逐帧 blit，省掉两发全屏径向渐变
+    if (!hazeCv) hazeCv = document.createElement('canvas');
+    hazeCv.width = canvas.width; hazeCv.height = canvas.height;
+    { const hc = hazeCv.getContext('2d'); hc.setTransform(DPR, 0, 0, DPR, 0, 0); hc.clearRect(0, 0, W, H);
+      hc.globalCompositeOperation = 'lighter';
+      const cX = W * 0.5, cY = -H * 0.06, bigR = Math.max(W, H) * 1.15;
+      const g1 = hc.createRadialGradient(cX, cY, 0, cX, cY, bigR);
+      g1.addColorStop(0, 'rgba(120,190,255,0.050)'); g1.addColorStop(0.35, 'rgba(96,162,236,0.024)');
+      g1.addColorStop(0.68, 'rgba(82,140,214,0.008)'); g1.addColorStop(1, 'rgba(72,124,200,0)');
+      hc.fillStyle = g1; hc.fillRect(0, 0, W, H * 0.95);
+      const sx = cX - W * 0.12, sy = H * 0.05, sr = W * 0.50;
+      const g2 = hc.createRadialGradient(sx, sy, 0, sx, sy, sr);
+      g2.addColorStop(0, 'rgba(150,215,255,0.040)'); g2.addColorStop(0.5, 'rgba(112,182,244,0.016)'); g2.addColorStop(1, 'rgba(80,150,220,0)');
+      hc.fillStyle = g2; hc.fillRect(0, 0, W, H * 0.62); }
+    // 暗角预渲染成位图：逐帧 blit，省掉一次全屏径向渐变栅格化
+    if (!vigCv) vigCv = document.createElement('canvas');
+    vigCv.width = canvas.width; vigCv.height = canvas.height;
+    { const vc = vigCv.getContext('2d'); vc.setTransform(DPR, 0, 0, DPR, 0, 0);
+      const vcx = W * 0.5, vcy = H * 0.46, vr = Math.hypot(W, H) * 0.62;
+      const vg = vc.createRadialGradient(vcx, vcy, Math.min(W, H) * 0.30, vcx, vcy, vr);
+      vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(0.60, 'rgba(2,4,12,0.26)'); vg.addColorStop(1, 'rgba(1,2,8,0.64)');
+      vc.fillStyle = vg; vc.fillRect(0, 0, W, H); }
+    if (nebulaGrads) buildNebulaGrads();
+    // Bloom 半分辨率缓冲
+    if (!bloomCv) bloomCv = document.createElement('canvas');
+    bloomCv.width = Math.max(2, Math.floor(canvas.width / 4));
+    bloomCv.height = Math.max(2, Math.floor(canvas.height / 4));
+    bloomCtx = bloomCv.getContext('2d');
+  }
+  window.addEventListener('resize', resize);
+  resize();
+  buildGrain();
+
+  const TAU = Math.PI * 2;
+  const N = IS_MOBILE ? 14000 : 30000;   // 手机降到 14000 颗（每帧要对全部粒子做 3D 变换+绘制，手机 CPU/GPU 扛不住 3 万）
+  // 圣诞树手法①：伞盖按 顶/中/缘 × 内/外 分 6 个荧光壳层，各层亮度基准不同（分层堆叠，非一团雾）
+  const SHELL_BASE = [1.02, 0.90, 0.80, 0.96, 0.86, 0.74];
+  const GAL_R = 460;             // 生物整体尺度（用于景深归一）
+  // —— 深海水母几何 ——
+  const BELL_R = 310;            // 伞盖半径
+  const BELL_H = 210;            // 伞盖高（伞顶→伞缘）
+  const TENT_LEN = 720;          // 触须长度
+  const NTENT = 46;              // 触须条数
+  const Y0 = -170;               // 伞顶在世界坐标中的竖直偏移（整体居中）
+
+  // per-particle state
+  const RADIUS = new Float32Array(N);
+  const ANGLE  = new Float32Array(N);
+  const HEIGHT = new Float32Array(N);
+  const SIZE   = new Float32Array(N);
+  const OMEGA  = new Float32Array(N);
+  const PHASE  = new Float32Array(N);
+  const TWK    = new Float32Array(N);
+  const BUCKET = new Uint8Array(N);
+  const TYPE   = new Uint8Array(N);   // 0=伞盖壳 1=触须 2=内部荧光 3=浮游微粒
+  const PARAM  = new Float32Array(N); // 沿体参数 0..1（伞盖 顶→缘 / 触须 根→尖）
+  const TID    = new Uint8Array(N);   // 触须所属 tentacle 索引（每根独立相位/频率/长度）
+
+  // scratch buffers for the frame
+  const sxA = new Float32Array(N);
+  const syA = new Float32Array(N);
+  const szA = new Float32Array(N);
+  const alA = new Float32Array(N);
+  const wvA = new Float32Array(N);   // 沿体光波命中强度（供颜色脉冲 pass）
+
+  // ---- color system -------------------------------------------------------
+  // Each theme is a radial color ramp (core-warm -> mid -> outer-cool), plus
+  // an HII accent (pink knots) and a bright core tone.
+  const NB = 16;                 // gradient buckets (by radius)
+  const B_HII = NB;              // pink HII nebula knots
+  const B_BLUE = NB + 1;         // blue young star clusters
+  const B_CORE = NB + 2;         // brightest warm core / bar stars
+  const NB_ALL = NB + 3;
+
+  const THEMES = [
+    { // 深海荧光 — 青白伞顶 / 青绿 / 幽蓝
+      stops: [[0,[235,255,252]],[0.16,[150,250,225]],[0.42,[70,205,235]],[0.72,[70,120,240]],[1,[38,58,150]]],
+      accent: [185,140,255], core: [225,255,250]
+    },
+    { // 幽紫水母 — 紫蓝荧光
+      stops: [[0,[250,240,255]],[0.16,[220,170,255]],[0.42,[175,120,250]],[0.72,[110,90,235]],[1,[50,40,140]]],
+      accent: [120,235,255], core: [245,235,255]
+    },
+    { // 翠绿 — 生物荧光绿
+      stops: [[0,[240,255,240]],[0.16,[170,255,190]],[0.42,[80,235,170]],[0.72,[40,180,200]],[1,[20,90,140]]],
+      accent: [255,150,200], core: [235,255,240]
+    },
+    { // 冰蓝 — 冷青
+      stops: [[0,[240,255,255]],[0.16,[170,245,255]],[0.42,[90,200,255]],[0.72,[70,140,250]],[1,[34,60,165]]],
+      accent: [200,160,255], core: [235,255,255]
+    }
+  ];
+  let theme = 0;
+
+  function lerpStops(stops, t) {
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    for (let i = 0; i < stops.length - 1; i++) {
+      const a = stops[i], b = stops[i + 1];
+      if (t >= a[0] && t <= b[0]) {
+        const f = (t - a[0]) / ((b[0] - a[0]) || 1);
+        return [
+          a[1][0] + (b[1][0] - a[1][0]) * f,
+          a[1][1] + (b[1][1] - a[1][1]) * f,
+          a[1][2] + (b[1][2] - a[1][2]) * f
+        ];
+      }
+    }
+    return stops[stops.length - 1][1].slice();
+  }
+
+  // Pre-rendered soft glow sprites (one per color bucket) — the single biggest
+  // visual upgrade vs. drawing hard squares.
+  function makeGlowSprite(rgb) {
+    const S = 64, cv = document.createElement('canvas');
+    cv.width = S; cv.height = S;
+    const g = cv.getContext('2d');
+    const r = Math.round(rgb[0]), gg = Math.round(rgb[1]), b = Math.round(rgb[2]);
+    const grd = g.createRadialGradient(S/2, S/2, 0, S/2, S/2, S/2);
+    // 收紧光斑：亮实心核 + 快速衰减，让每颗读作“颗粒点”而非一团软雾
+    grd.addColorStop(0.00, `rgba(${r},${gg},${b},1)`);
+    grd.addColorStop(0.10, `rgba(${r},${gg},${b},0.96)`);
+    grd.addColorStop(0.24, `rgba(${r},${gg},${b},0.46)`);
+    grd.addColorStop(0.46, `rgba(${r},${gg},${b},0.10)`);
+    grd.addColorStop(0.72, `rgba(${r},${gg},${b},0.025)`);
+    grd.addColorStop(1.00, `rgba(${r},${gg},${b},0)`);
+    g.fillStyle = grd; g.fillRect(0, 0, S, S);
+    return cv;
+  }
+
+  let sprites = [];
+  let starSprite = null;
+  let moteSpriteA = null, moteSpriteB = null;
+  function buildSprites() {
+    const th = THEMES[theme];
+    sprites = []; bucketFill = [];
+    const push = (rgb) => {
+      sprites.push(makeGlowSprite(rgb));
+      bucketFill.push('rgb(' + Math.round(rgb[0]) + ',' + Math.round(rgb[1]) + ',' + Math.round(rgb[2]) + ')');
+    };
+    for (let b = 0; b < NB; b++) push(lerpStops(th.stops, b / (NB - 1)));
+    push(th.accent);        // B_HII  — 粉红 HII 星云团
+    push([90, 225, 205]);   // B_BLUE — 触须青绿荧光
+    push(th.core);          // B_CORE — 暖白/金核球与棒
+    buildNebulaGrads();
+  }
+  // cache nebula + core-halo radial gradients (rebuilt only on theme change / resize)
+  function buildNebulaGrads() {
+    const th = THEMES[theme];
+    const c1 = lerpStops(th.stops, 0.25), c2 = lerpStops(th.stops, 0.75), ca = th.accent;
+    const M = Math.max(W, H);
+    const blobs = [
+      [W * 0.30, H * 0.32, M * 0.62, c1, 0.055],
+      [W * 0.73, H * 0.70, M * 0.74, c2, 0.050],
+      [W * 0.52, H * 0.50, M * 0.92, ca, 0.016]
+    ];
+    nebulaGrads = blobs.map(([x, y, r, c, a]) => {
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      const cs = `${c[0] | 0},${c[1] | 0},${c[2] | 0}`;
+      g.addColorStop(0, `rgba(${cs},${a})`);
+      g.addColorStop(0.62, `rgba(${cs},${a * 0.34})`);
+      g.addColorStop(1, `rgba(${cs},0)`);
+      return { g, x, y, r };
+    });
+    const core = th.core;
+    const hr = Math.min(W, H) * 0.42;
+    const hl = ctx.createRadialGradient(W * 0.5, H * 0.5, 0, W * 0.5, H * 0.5, hr);
+    hl.addColorStop(0, `rgba(${core[0]},${core[1]},${core[2]},0.11)`);
+    hl.addColorStop(0.16, `rgba(${core[0]},${core[1]},${core[2]},0.050)`);
+    hl.addColorStop(0.46, 'rgba(110,200,255,0.030)');
+    hl.addColorStop(1, 'rgba(40,30,110,0)');
+    coreHaloGrad = { g: hl, r: hr };
+    // 水母伞盖内的一团软荧光核心（青白），替代堆粒子
+    const nr = Math.min(W, H) * 0.17;
+    const ng = ctx.createRadialGradient(W * 0.5, H * 0.5, 0, W * 0.5, H * 0.5, nr);
+    ng.addColorStop(0.00, `rgba(${core[0] | 0},${core[1] | 0},${core[2] | 0},0.15)`);
+    ng.addColorStop(0.26, 'rgba(120,240,230,0.075)');
+    ng.addColorStop(0.50, 'rgba(120,150,255,0.045)');
+    ng.addColorStop(0.72, 'rgba(150,110,255,0.028)');
+    ng.addColorStop(1.00, 'rgba(60,150,240,0)');
+    nucleusGrad = { g: ng, r: nr };
+    // 暗角：压暗远景四角，让主体更突出
+    const vcx = W * 0.5, vcy = H * 0.46, vr = Math.hypot(W, H) * 0.62;
+    const vg = ctx.createRadialGradient(vcx, vcy, Math.min(W, H) * 0.30, vcx, vcy, vr);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(0.60, 'rgba(2,4,12,0.26)');
+    vg.addColorStop(1, 'rgba(1,2,8,0.64)');
+    vignetteGrad = vg;
+  }
+  buildSprites();
+  starSprite = makeGlowSprite([188, 208, 255]);
+  moteSpriteA = makeGlowSprite([150, 240, 250]);   // 青
+  moteSpriteB = makeGlowSprite([190, 150, 255]);   // 幽紫
+
+  function gauss() {
+    let u = 0, v = 0;
+    while (u === 0) u = Math.random();
+    while (v === 0) v = Math.random();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(TAU * v);
+  }
+
+  // ---- build a bioluminescent deep-sea jellyfish ----
+  // 圆柱坐标：RADIUS=水平半径, ANGLE=方位角, HEIGHT=竖直高度(y，向下为正)。伞顶 y=Y0，伞缘 y=Y0+BELL_H，触须继续向下。
+  const TENT_BASE = [];   // 每条触须的基角
+  const NTARM = 6;        // 较粗的口腕（oral arms）数量，其余为细丝触须
+  const TPH = new Float32Array(NTENT), TFR = new Float32Array(NTENT), TAMP = new Float32Array(NTENT),
+        TLEN = new Float32Array(NTENT), TCURL = new Float32Array(NTENT);
+  for (let t = 0; t < NTENT; t++) {
+    TENT_BASE.push((t / NTENT) * TAU + (Math.random() - 0.5) * 0.22);
+    TPH[t]  = Math.random() * TAU;
+    TFR[t]  = 0.6 + Math.random() * 0.7;       // 每根摆动频率不同 → 去同步
+    TAMP[t] = 1.0 + Math.random() * 0.7;       // 每根摆幅不同
+    TLEN[t] = 0.78 + Math.random() * 0.62;     // 每根长度不同（更长）
+    TCURL[t] = (Math.random() * 2 - 1);        // 尖端卷曲方向/量
+  }
+  // 每根触须的"甩"软物理状态（按根算：二阶弹簧，相机旋转速度驱动）
+  const TS_POSA = new Float32Array(NTENT), TS_VELA = new Float32Array(NTENT),   // 切向甩动（rotY 驱动）
+        TS_POSR = new Float32Array(NTENT), TS_VELR = new Float32Array(NTENT),   // 径向甩动（rotX 驱动）
+        TS_MA = new Float32Array(NTENT), TS_MR = new Float32Array(NTENT), TS_DMP = new Float32Array(NTENT);
+  for (let t = 0; t < NTENT; t++) {
+    TS_MA[t] = 0.85 + Math.random() * 0.30;   // 每根响应强度略异
+    TS_MR[t] = 0.85 + Math.random() * 0.30;
+    TS_DMP[t] = 0.86 + Math.random() * 0.28;  // 每根阻尼略异 → 避免整齐划一
+  }
+
+  for (let i = 0; i < N; i++) {
+    const r = Math.random();
+    let rad, angle, height, bucket, type, param;
+
+    if (r < 0.42) {
+      // ---- 伞盖壳：半透明胶质穹顶（稀疏、向伞缘聚、分叶边缘）----
+      type = 0;
+      const s = Math.pow(Math.random(), 0.70);              // 向伞缘聚，中部更透
+      param = s;
+      angle = Math.random() * TAU;
+      const lobe = 1 + 0.055 * Math.sin(6 * angle) * (s * s);          // 伞缘分叶/波浪（lappets）
+      const shellR = BELL_R * Math.sqrt(Math.max(0, 2 * s - s * s)) * lobe;  // 圆润穹顶
+      const inward = Math.random();
+      rad = shellR * (inward < 0.78 ? (0.90 + 0.10 * Math.random()) : (0.20 + 0.70 * Math.random()));
+      height = Y0 + BELL_H * s + gauss() * (1.5 + 3.0 * s);
+      bucket = Math.min(NB - 1, Math.floor(s * (NB - 1) * 0.72));
+      if (s < 0.07 && Math.random() < 0.5) bucket = B_CORE;    // 伞顶高光
+    } else if (r < 0.84) {
+      // ---- 触须：有机 S 形，根粗尖细，口腕/细丝分层 ----
+      type = 1;
+      const ti = (Math.random() * NTENT) | 0;
+      const s = Math.pow(Math.random(), 0.8);               // 根→尖
+      param = s;
+      const oral = ti < NTARM;                               // 口腕（较粗、靠内）
+      const taper = 1 - (oral ? 0.30 : 0.55) * s;            // 越往尖越靠近轴心
+      const wob = 1 + 0.06 * Math.sin(s * 9.0 + TPH[ti]);
+      rad = BELL_R * (oral ? 0.55 : 0.97) * taper * wob;
+      angle = TENT_BASE[ti] + (Math.random() - 0.5) * (oral ? 0.10 : 0.04);
+      height = Y0 + BELL_H + s * TENT_LEN * TLEN[ti] + gauss() * 1.5;
+      bucket = Math.min(NB - 1, Math.floor((0.55 + 0.45 * s) * (NB - 1)));
+      if (s < 0.10 && Math.random() < 0.22) bucket = B_HII;    // 根部荧光点
+      if (s > 0.78 && Math.random() < 0.75) bucket = Math.random() < 0.4 ? B_CORE : B_HII;  // 尖端拖尾余晖
+      TID[i] = ti;
+    } else if (r < 0.94) {
+      // ---- 内部荧光（生殖腺 / 口腕核心，最亮）----
+      type = 2;
+      const s = Math.random();
+      param = s;
+      rad = BELL_R * 0.32 * Math.sqrt(Math.random());
+      angle = Math.random() * TAU;
+      height = Y0 + BELL_H * (0.35 + 0.50 * Math.random()) + gauss() * 6;
+      bucket = Math.random() < 0.45 ? B_CORE : Math.min(NB - 1, Math.floor(2 + Math.random() * 3));
+    } else {
+      // ---- 浮游微粒（环境微光）----
+      type = 3;
+      param = Math.random();
+      rad = BELL_R * (1.2 + Math.random() * 2.6) * Math.sqrt(Math.random());
+      angle = Math.random() * TAU;
+      height = Y0 + BELL_H + Math.random() * TENT_LEN + (Math.random() - 0.5) * 260;
+      bucket = NB - 1;
+    }
+
+    TYPE[i]   = type;
+    PARAM[i]  = param;
+    RADIUS[i] = Math.max(0, rad);
+    ANGLE[i]  = angle;
+    HEIGHT[i] = height;
+    PHASE[i]  = Math.random() * TAU;
+    TWK[i]    = 0.6 + Math.random() * 1.4;
+    OMEGA[i]  = (type === 0 ? 0.0016 : type === 1 ? 0.0006 : 0.0009);  // 极缓整体自转
+    let baseSz;
+    if (type === 0) baseSz = 0.8 + Math.random() * 1.2;                  // 伞盖小点
+    else if (type === 1) baseSz = 0.6 + Math.random() * 0.9;             // 触须更细
+    else if (type === 2) baseSz = 1.4 + Math.random() * 1.8;             // 内荧光稍大
+    else baseSz = 0.5 + Math.random() * 0.8;                             // 微粒极小
+    SIZE[i] = baseSz;
+    if (type === 1) {
+      const oral = TID[i] < NTARM;
+      let tsz = oral ? (1.85 - 0.55 * param) : (1.0 - 0.55 * param);   // 根粗尖细
+      if (param > 0.75) tsz *= 1 + 1.3 * (param - 0.75);               // 末端更丰满，不散成点
+      SIZE[i] *= tsz;
+    }
+    BUCKET[i] = bucket;
+  }
+
+  // pre-sorted per-bucket index lists — removes the 18×N scan every frame
+  const BUCKET_LIST = Array.from({ length: NB_ALL }, () => []);
+  for (let i = 0; i < N; i++) BUCKET_LIST[BUCKET[i]].push(i);
+
+  // ---- 爆发玩法：每颗粒子的爆散方向/距离（预计算，每帧常量级开销）----
+  const BXD = new Float32Array(N), BYD = new Float32Array(N), BZD = new Float32Array(N), BSD = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const a = ANGLE[i];
+    let dx = Math.cos(a) * 0.85 + (Math.random() * 2 - 1) * 0.55;
+    let dy = (Math.random() * 2 - 1) * 0.9 + 0.15;                 // 略微向上散
+    let dz = Math.sin(a) * 0.85 + (Math.random() * 2 - 1) * 0.55;
+    const L = Math.hypot(dx, dy, dz) || 1;
+    BXD[i] = dx / L; BYD[i] = dy / L; BZD[i] = dz / L;
+    BSD[i] = 110 + Math.random() * 430;                            // 每颗飞行距离不同 → 颗颗分明
+  }
+  const oSXA = new Float32Array(N), oSYA = new Float32Array(N);     // 上一帧屏幕位置（拖尾）
+
+  // ---- dust lanes: dark occlusion along the inner edges of the arms --------
+  const ND = 0;
+  const DRAD = new Float32Array(ND), DANG = new Float32Array(ND), DH = new Float32Array(ND),
+        DSIZE = new Float32Array(ND), DOMEGA = new Float32Array(ND), DPHASE = new Float32Array(ND);
+  // 水母主题不使用星尘盘：ND=0，保留空的尘埃缓冲与尘埃精灵以兼容渲染层。
+  function makeDustSprite() {
+    const S = 64, cv = document.createElement('canvas'); cv.width = S; cv.height = S;
+    const g = cv.getContext('2d');
+    const grd = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+    grd.addColorStop(0, 'rgba(8,6,14,0.42)');
+    grd.addColorStop(0.5, 'rgba(10,8,18,0.20)');
+    grd.addColorStop(1, 'rgba(10,8,18,0)');
+    g.fillStyle = grd; g.fillRect(0, 0, S, S);
+    return cv;
+  }
+  const dustSprite = makeDustSprite();
+
+  // ---- distant starfield ---------------------------------------------------
+  const STARS = 520;
+  const starX = new Float32Array(STARS), starY = new Float32Array(STARS),
+        starS = new Float32Array(STARS), starA = new Float32Array(STARS),
+        starB = new Uint8Array(STARS);
+  for (let i = 0; i < STARS; i++) {
+    starX[i] = Math.random(); starY[i] = Math.random();
+    starS[i] = Math.random() * 1.3 + 0.2;
+    starA[i] = Math.random() * 0.34 + 0.06;
+    starB[i] = starS[i] > 1.25 ? 1 : 0;   // a few bright ones get a soft glow
+  }
+
+  // ---- 漂浮萤光浮尘（青/紫虹彩微粒，缓慢上升 + 摇摆 + 呼吸，梦幻层次）----
+  const MOTES = 88;
+  const moteX = new Float32Array(MOTES), moteY = new Float32Array(MOTES), moteR = new Float32Array(MOTES),
+        moteV = new Float32Array(MOTES), moteP = new Float32Array(MOTES), moteHue = new Uint8Array(MOTES);
+  for (let i = 0; i < MOTES; i++) {
+    moteX[i] = Math.random(); moteY[i] = Math.random();
+    moteR[i] = 5 + Math.random() * 12; moteV[i] = 0.004 + Math.random() * 0.012;
+    moteP[i] = Math.random() * TAU; moteHue[i] = Math.random() < 0.5 ? 0 : 1;
+  }
+
+  // ---- camera / interaction state -----------------------------------------
+  let rotX = -0.30, rotY = 0.0, tRotX = -0.30, tRotY = 0.0;   // 略俯视的深渊水母
+  let prevRotX = rotX, prevRotY = rotY;   // 上一帧相机角（求旋转速度 → 触须甩动）
+  let zoom = 1, tZoom = 1;
+  const autoSpin = 0.0009;
+  const BASE_PITCH = -0.30;                  // 手势中立的俯仰基准
+  let spinBase = 0;                          // 自转累积基准（鼠标拖动/惯性/自动自转都归这里）
+  let handYaw = 0, handPitch = 0;            // 手势：掌心绝对偏移（open）
+  let tRoll = 0, roll = 0;                   // 手势：手掌 roll → 整体自转（屏幕空间）
+  let tBellOpen = 1, bellOpen = 1;           // 手势：双手开合 → 伞盖张缩
+  let handSeenAt = -1e9;                     // 最近一次有效手势输入时刻(ms)
+  let waveAmp = 0, wavePhase = 2.0;          // 沿体光波（手速触发）
+
+  // ---- 打击感 / juice：瞬态衰减量 + 过冲回弹弹簧（只加“回馈”，不改手势→控制映射）----
+  let jShake = 0, jFlash = 0, jEnergy = 0;   // 镜头微震 / 瞬时高亮bloom / 挥手能量脉冲
+  let jBell = 0, jBellV = 0;                 // 伞盖冲击（猛张→回弹）
+  let jZoom = 0, jZoomV = 0;                 // 缩放冲击（overshoot 甩）
+  let jFist = 0, jFistV = 0;                 // 握拳收紧冲击（过冲回弹）
+
+  // ---- 爆发玩法状态：握拳→整只炸开、松拳→吸回重组 ----
+  let burstAmt = 0, burstVel = 0, burstTarget = 0;   // 0=重组水母 1=完全炸散
+  let shapeFadeG = 1;                                 // 当前帧非粒子光晕淡出系数（供 drawBellInternal 用）
+  const TEST_BURST = /[?&]burst=1\b/.test(location.search);   // 无手势强制演示：?burst=1
+  const DEBUG_HUD = /[?&]debug=1\b/.test(location.search);    // 调试读数：?debug=1
+  const FPS_HUD = DEBUG_HUD || /[?&]fps=1\b/.test(location.search);   // 帧率读数：?fps=1（真机验收用）
+  const GRADE_ON = !/[?&]grade=0\b/.test(location.search);    // 电影级调色（?grade=0 可关）
+  const FORCE_BURST = (m => m ? +m[1] : -1)(location.search.match(/[?&]burstphase=([0-9.]+)/));  // 定量冻帧：?burstphase=0.85
+  const FORCE_Q = (m => m ? Math.max(0, Math.min(3, +m[1] | 0)) : -1)(location.search.match(/[?&]q=([0-3])/));  // 强制画质档：?q=2（验收用，禁用自适应）
+  let testBurstStart = -1;
+
+  // ---- A–F 扩展特效状态 ----
+  let swirl = 0;              // E 螺旋旋涡吸回强度 0..1（松拳置 1，缓慢衰减）
+  let slowmo = 0;             // C 炸开一瞬慢动作 0..1
+  let radialBlur = 0;         // C 轻微径向模糊 0..1
+  let charge = 0;             // F 双手蓄力 0..1（越久越猛）
+  let burstPower = 1;         // 本次爆发强度倍率（蓄力二段爆 >1）
+  let detonateQueued = 0;     // B 二次殉爆倒计时(ms)
+  const sparks = [];          // B 碎屑火花（有界数组）
+  // E 每颗粒子的螺旋相位（预计算，避免每帧 trig）
+  const SWP = new Float32Array(N);
+  for (let i = 0; i < N; i++) SWP[i] = 0.82 + Math.random() * 0.22;
+  // FX 定量冻帧：?fx=swirl,debris,blur,charge（仅验证用，可逗号组合）
+  const FX_FORCE = (location.search.match(/[?&]fx=([a-z,]+)/i) || [])[1] || '';
+  const FORCE_SWIMPHASE = (m => m ? +m[1] : -1)(location.search.match(/[?&]swimphase=([0-9.]+)/));   // 定量冻帧游泳相位
+  let fxDebrisSpawned = false;
+  let fxRingSpawned = false;
+  let camCharging = false;    // F 双掌合拢蓄力中（applyGesture 每帧写入）
+  let tapBurstHold = 0;       // 鼠标点击爆发保持时长(ms)
+  let detonateX = 0, detonateY = 0;   // 二次殉爆中心
+  let bodyLift = 0, liftTarget = 0;   // J 整只升起/坠落（屏幕纵向偏移）
+  let swayCooldown = 0;       // G 挥手横扫触发冷却(ms)
+  let flashOut = 0;           // 炸开瞬时全屏爆闪 0..1
+  let swimPhase = Math.random(), swimSw = 0;   // 水母游动脉冲相位 / 当前收缩强度 0..1
+
+  let mx = -9999, my = -9999, mouseOn = false;
+  let gather = 0, gatherTarget = 0;   // 握拳 -> 粒子向心聚拢
+  const ripples = [];
+  const supernovas = [];
+  const meteors = [];
+  let nextSuper = 2500, nextMeteor = 4000;
+
+  // ---- gesture engine (native Pointer Events, no libraries) ----------------
+  const pointers = new Map();      // pointerId -> {x, y}
+  let gesture = 'none';            // 'none' | 'drag' | 'pinch'
+  let lastX = 0, lastY = 0, lastMoveT = 0;
+  let velX = 0, velY = 0;          // rotational inertia (rad / ms)
+  let tap = null;                  // { t, x, y, moved } — becomes a burst on release
+  let pinch = null;                // { d0, a0, z0, ry0, rx0, my0 }
+
+  function clampRotX(v) { return v < -1.35 ? -1.35 : v > 1.35 ? 1.35 : v; }
+  function pDist(a, b) { return Math.hypot(b.x - a.x, b.y - a.y) || 1; }
+  function pAngle(a, b) { return Math.atan2(b.y - a.y, b.x - a.x); }
+  function twoPointers() { const it = pointers.values(); return [it.next().value, it.next().value]; }
+
+  canvas.addEventListener('pointerdown', e => {
+    try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (e.pointerType !== 'mouse') { mx = e.clientX; my = e.clientY; mouseOn = true; }
+
+    if (pointers.size === 1) {
+      gesture = 'drag';
+      lastX = e.clientX; lastY = e.clientY; lastMoveT = performance.now();
+      velX = velY = 0;
+      tap = { t: performance.now(), x: e.clientX, y: e.clientY, moved: 0 };
+      canvas.classList.add('drag');
+    } else if (pointers.size === 2) {
+      gesture = 'pinch';
+      const [a, b] = twoPointers();
+      pinch = { d0: pDist(a, b), a0: pAngle(a, b), z0: tZoom, ry0: spinBase, rx0: tRotX, my0: (a.y + b.y) * 0.5 };
+      tap = null; velX = velY = 0;
+      canvas.classList.add('drag');
+    }
+  });
+
+  canvas.addEventListener('pointermove', e => {
+    if (e.pointerType === 'mouse' || pointers.has(e.pointerId)) {
+      mx = e.clientX; my = e.clientY; mouseOn = true;
+    }
+    if (!pointers.has(e.pointerId)) return;
+    const pt = pointers.get(e.pointerId);
+    pt.x = e.clientX; pt.y = e.clientY;
+
+    if (gesture === 'drag' && pointers.size === 1) {
+      const dx = e.clientX - lastX, dy = e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY;
+      const now2 = performance.now();
+      const dtm = Math.max(1, now2 - lastMoveT); lastMoveT = now2;
+      const dY = dx * 0.0052, dX = dy * 0.0052;
+      spinBase += dY;
+      tRotX = clampRotX(tRotX + dX);
+      velY = velY * 0.7 + (dY / dtm) * 0.3;    // smooth angular velocity for inertia
+      velX = velX * 0.7 + (dX / dtm) * 0.3;
+      if (tap) tap.moved += Math.hypot(dx, dy);
+    } else if (gesture === 'pinch' && pointers.size >= 2) {
+      const [a, b] = twoPointers();
+      tZoom = Math.max(0.45, Math.min(3.2, pinch.z0 * pDist(a, b) / pinch.d0));  // pinch zoom
+      spinBase = pinch.ry0 + (pAngle(a, b) - pinch.a0);                        // two-finger twist
+      tRotX = clampRotX(pinch.rx0 + ((a.y + b.y) * 0.5 - pinch.my0) * 0.0035);   // vertical pan = tilt
+    }
+  });
+
+  function endPointer(e) {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.delete(e.pointerId);
+
+    if (gesture === 'pinch') {
+      if (pointers.size >= 2) return;
+      if (pointers.size === 1) {              // drop to single-finger drag
+        const p = pointers.values().next().value;
+        gesture = 'drag'; lastX = p.x; lastY = p.y; lastMoveT = performance.now();
+        velX = velY = 0; tap = null; pinch = null;
+        return;
+      }
+      gesture = 'none'; pinch = null; canvas.classList.remove('drag');
+      if (e.pointerType !== 'mouse') mouseOn = false;
+      return;
+    }
+
+    if (gesture === 'drag') {
+      if (tap && pointers.size === 0 &&
+          performance.now() - tap.t < 280 && tap.moved < 8) {
+        // 点击 = 完整爆发（A–F：冲击波＋二次殉爆＋慢动作＋径向模糊＋碎屑），到期螺旋吸回
+        burstPower = 1.25; burstTarget = 1; tapBurstHold = 520;
+        slowmo = Math.max(slowmo, 0.9); radialBlur = Math.max(radialBlur, 0.85);
+        jFlash = Math.max(jFlash, 0.9); jShake = Math.max(jShake, 7);
+        flashOut = 1;
+        jZoomV += 0.05; jBellV += 0.14; jFistV -= 0.15;
+        detonateX = tap.x; detonateY = tap.y;
+        ripples.push({ x: tap.x, y: tap.y, r: 0, max: Math.max(W, H) * 0.9 });
+        ripples.push({ x: tap.x, y: tap.y, r: 0, max: Math.max(W, H) * 1.35 });
+        detonateQueued = 150;
+        sfxBurst();
+      }
+      tap = null;
+      if (pointers.size === 0) {
+        gesture = 'none'; canvas.classList.remove('drag');
+        if (e.pointerType !== 'mouse') mouseOn = false;
+      }
+    }
+  }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+  canvas.addEventListener('pointerleave', e => {
+    if (e.pointerType === 'mouse') { mouseOn = false; mx = my = -9999; }
+  });
+
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    tZoom *= (e.deltaY > 0 ? 0.9 : 1.111);
+    tZoom = Math.max(0.45, Math.min(3.2, tZoom));
+  }, { passive: false });
+
+  canvas.addEventListener('dblclick', () => { tRotX = BASE_PITCH; spinBase = 0; handYaw = 0; handPitch = 0; tRoll = 0; tZoom = 1; tBellOpen = 1; velX = velY = 0; });
+
+  window.addEventListener('keydown', e => {
+    const n = parseInt(e.key, 10);
+    if (n >= 1 && n <= THEMES.length) { theme = n - 1; buildSprites(); }
+  });
+
+  // ---- backdrop layers -----------------------------------------------------
+  function drawNebula() {
+    if (!nebulaGrads) return;
+    for (let k = 0; k < nebulaGrads.length; k++) {
+      const ng = nebulaGrads[k];
+      ctx.fillStyle = ng.g;
+      ctx.beginPath(); ctx.arc(ng.x, ng.y, ng.r, 0, TAU); ctx.fill();
+    }
+  }
+
+  // ---- （原「伞盖向下体积光柱 / 丁达尔光束」已删除：画面中不再出现任何可见光束）----
+
+  // ---- 极淡顶部散射光：无光束、无亮带、无边界，只有大面积柔渐变 + 一团超模糊光斑 ----
+  function drawTopHaze(cx, tms) {
+    ctx.globalCompositeOperation = 'lighter';
+    if (hazeCv) { ctx.globalAlpha = 1; ctx.drawImage(hazeCv, 0, 0, W, H); return; }
+
+    // 顶部环境亮：超大径向渐变，从上方缓慢、无边界地向画面中部衰减（没有任何可读的边）
+    const cY = -H * 0.06;
+    const bigR = Math.max(W, H) * 1.15;
+    const g = ctx.createRadialGradient(cx, cY, 0, cx, cY, bigR);
+    g.addColorStop(0, 'rgba(120,190,255,0.050)');
+    g.addColorStop(0.35, 'rgba(96,162,236,0.024)');
+    g.addColorStop(0.68, 'rgba(82,140,214,0.008)');
+    g.addColorStop(1, 'rgba(72,124,200,0)');
+    ctx.globalAlpha = 1; ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H * 0.95);
+
+    // 一团超模糊水面散射柔光斑：无边界，极慢漂移，只是"亮一点"不构成形状
+    const sx = cx - W * 0.12 + Math.sin(tms * 0.00006) * W * 0.07;
+    const sy = H * 0.05 + Math.sin(tms * 0.00005 + 1.3) * H * 0.02;
+    const sr = W * 0.50;
+    const sg = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr);
+    sg.addColorStop(0, 'rgba(150,215,255,0.040)');
+    sg.addColorStop(0.5, 'rgba(112,182,244,0.016)');
+    sg.addColorStop(1, 'rgba(80,150,220,0)');
+    ctx.globalAlpha = 1; ctx.fillStyle = sg;
+    ctx.fillRect(0, 0, W, H * 0.62);
+  }
+
+  // ---- 伞缘亮环（每帧按真实 3D 投影重建：多层由窄到宽、由亮到淡 → 柔和光溢出）----
+  function drawBellRim(cx, cy, R, ringH, cosX, sinX, cosY, sinY, focal, camD, zEff, tms, inten) {
+    ctx.globalCompositeOperation = 'lighter';
+    const K = 72;
+    const br = 0.62 + 0.38 * Math.sin(tms * 0.0016);
+    const P = [];
+    for (let k = 0; k <= K; k++) {
+      const a = (k / K) * TAU;
+      const lobe = 1 + (0.06 + 0.06 * swimSw) * Math.sin(6 * a + tms * 0.0012);   // 伞缘波状起伏（活着）
+      const x = R * lobe * Math.cos(a), z = R * lobe * Math.sin(a);
+      const y1 = ringH * cosX - z * sinX, z1 = ringH * sinX + z * cosX;
+      const x1 = x * cosY + z1 * sinY, z2 = -x * sinY + z1 * cosY;
+      const sc = focal / (camD - z2);
+      P.push([cx + x1 * sc * zEff, cy + y1 * sc * zEff, Math.max(0, Math.min(1, z2 / R * 0.5 + 0.5))]);
+    }
+    // 降档到 2 级时只留 1 层宽柔光（少画 2 圈宽描边，省填充）——伞缘仍是柔和光溢出
+    const passes = qualityLevel >= 2 ? [[0.050, 0.085]] : [[0.014, 0.10], [0.040, 0.050], [0.090, 0.024]];
+    for (let pi = 0; pi < passes.length; pi++) {
+      const wMul = passes[pi][0], aBase = passes[pi][1];
+      for (let k = 0; k < K; k++) {
+        const a0 = P[k], a1 = P[k + 1];
+        const front = (a0[2] + a1[2]) * 0.5;
+        if (front < 0.18) continue;                      // 只画前缘弧 → 去掉整圈椭圆感
+        const lump = 0.3 + 0.7 * Math.pow(Math.max(0, Math.sin(6 * (k / K) * TAU)), 1.6);  // 随分叶断续
+        ctx.globalAlpha = aBase * (0.25 + 1.0 * front) * lump * br * (0.55 + 0.7 * inten);
+        ctx.strokeStyle = `rgba(${(130 + 80 * front) | 0},${(245 + 10 * front) | 0},${(238 - 20 * front) | 0},1)`;
+        ctx.lineWidth = Math.max(1, R * wMul);
+        ctx.beginPath(); ctx.moveTo(a0[0], a0[1]); ctx.lineTo(a1[0], a1[1]); ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // 把伞盖表面上的点按当前帧变换投影到屏幕
+  function projBell(rad, ang, y, cx, cy, cosX, sinX, cosY, sinY, focal, camD, zEff) {
+    const x = rad * Math.cos(ang), z = rad * Math.sin(ang);
+    const y1 = y * cosX - z * sinX, z1 = y * sinX + z * cosX;
+    const x1 = x * cosY + z1 * sinY, z2 = -x * sinY + z1 * cosY;
+    const sc = focal / (camD - z2);
+    return [cx + x1 * sc * zEff, cy + y1 * sc * zEff, z2];
+  }
+  // ---- 伞盖内部结构：放射管 + 马蹄形生殖腺 + 口柄暗影（若隐若现）----
+  function drawBellInternal(cx, cy, breath, cosX, sinX, cosY, sinY, focal, camD, zEff, tms, inten) {
+    const surfR = (s) => BELL_R * Math.sqrt(Math.max(0, 2 * s - s * s)) * breath;
+    const sy = (s) => Y0 + BELL_H * s;
+
+    // 中央胃/口柄暗影：先压暗中心，制造纵深（透光层次）
+    const ap = projBell(0, 0, Y0 + BELL_H * 0.55, cx, cy, cosX, sinX, cosY, sinY, focal, camD, zEff);
+    const manR = BELL_R * 0.34 * (focal / camD) * zEff;
+    const dg = ctx.createRadialGradient(ap[0], ap[1], 0, ap[0], ap[1], manR);
+    dg.addColorStop(0, 'rgba(4,10,20,0.34)');
+    dg.addColorStop(0.6, 'rgba(6,14,26,0.15)');
+    dg.addColorStop(1, 'rgba(8,18,30,0)');
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = shapeFadeG * introReveal; ctx.fillStyle = dg;
+    ctx.beginPath(); ctx.arc(ap[0], ap[1], manR, 0, TAU); ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // 放射管（伞顶→伞缘），隐约可见的 10 条
+    ctx.globalCompositeOperation = 'lighter';
+    const NC = 10;
+    for (let k = 0; k < NC; k++) {
+      const a = (k / NC) * TAU + 0.15;
+      ctx.beginPath();
+      for (let j = 0; j <= 10; j++) {
+        const s = 0.08 + (j / 10) * 0.90;
+        const p = projBell(surfR(s) * 0.985, a, sy(s), cx, cy, cosX, sinX, cosY, sinY, focal, camD, zEff);
+        if (j === 0) ctx.moveTo(p[0], p[1]); else ctx.lineTo(p[0], p[1]);
+      }
+      ctx.globalAlpha = 0.12 * (0.6 + inten) * shapeFadeG * introReveal;
+      ctx.strokeStyle = 'rgba(150,240,245,1)';
+      ctx.lineWidth = 1.3;
+      ctx.stroke();
+    }
+
+    // 4 个马蹄形生殖腺（伞盖中下部一圈，偏幽紫）
+    const NG = 4;
+    for (let k = 0; k < NG; k++) {
+      const a0 = (k / NG) * TAU + 0.6;
+      ctx.beginPath();
+      let first = true;
+      for (let j = 0; j <= 12; j++) {
+        const t = j / 12;
+        const a = a0 + (t - 0.5) * 0.95;                 // 约 54° 弧
+        const s = 0.46 + 0.12 * Math.sin(t * Math.PI);
+        const p = projBell(surfR(s) * 0.52, a, sy(s), cx, cy, cosX, sinX, cosY, sinY, focal, camD, zEff);
+        if (first) { ctx.moveTo(p[0], p[1]); first = false; } else ctx.lineTo(p[0], p[1]);
+      }
+      ctx.globalAlpha = 0.40 * (0.5 + inten) * shapeFadeG * introReveal;
+      ctx.strokeStyle = 'rgba(165,140,252,1)';
+      ctx.lineWidth = 4.4;
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ---- 前景虚焦微尘 / 上升气泡（景深）----
+  const FN = 22;
+  const fbX = new Float32Array(FN), fbY = new Float32Array(FN), fbR = new Float32Array(FN),
+        fbV = new Float32Array(FN), fbA = new Float32Array(FN), fbP = new Float32Array(FN);
+  for (let i = 0; i < FN; i++) {
+    fbX[i] = Math.random(); fbY[i] = Math.random();
+    fbR[i] = 6 + Math.random() * 34;              // 只保留小幅虚焦微尘，去掉近景大光斑 → 画面更干净
+    fbV[i] = 0.006 + Math.random() * 0.022;       // 上升速度（屏高/秒）
+    fbA[i] = 0.035 + Math.random() * 0.10;
+    fbP[i] = Math.random() * TAU;
+  }
+  function drawBubbles(dtMs) {
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < FN; i++) {
+      fbY[i] -= fbV[i] * dtMs / 1000;
+      if (fbY[i] < -0.12) { fbY[i] = 1.12; fbX[i] = Math.random(); }
+      const r = fbR[i];
+      const x = (fbX[i] + Math.sin(time * 0.0005 + fbP[i]) * 0.012) * W;
+      const y = fbY[i] * H;
+      const aEff = fbA[i] * (r > 95 ? 0.5 : 1);    // 近景大颗更虚更淡
+      const grd = ctx.createRadialGradient(x, y, 0, x, y, r);
+      if (r > 46) {
+        grd.addColorStop(0, `rgba(185,255,248,${aEff})`);
+        grd.addColorStop(0.5, `rgba(120,230,235,${aEff * 0.35})`);
+        grd.addColorStop(1, 'rgba(90,190,230,0)');
+      } else {
+        grd.addColorStop(0, `rgba(225,255,250,${aEff})`);
+        grd.addColorStop(0.55, `rgba(160,240,235,${aEff * 0.4})`);
+        grd.addColorStop(1, 'rgba(150,235,230,0)');
+      }
+      ctx.globalAlpha = 1; ctx.fillStyle = grd;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+    }
+  }
+
+  // ---- B 二次殉爆碎屑：从中心抛射的有界火花（青白 / 幽紫虹彩）----
+  function spawnSparks(n, bx, by, power) {
+    if (sparks.length > 620) return;                 // 上限，保帧率
+    const cols = ['188,255,246', '150,190,255', '195,150,255', '225,255,250'];
+    const pw = 0.7 + 0.5 * (power || 1);
+    for (let k = 0; k < n; k++) {
+      const a = Math.random() * TAU;
+      const spd = (120 + Math.random() * 520) * pw;
+      sparks.push({
+        x: bx + (Math.random() * 2 - 1) * 24,
+        y: by + (Math.random() * 2 - 1) * 24,
+        vx: Math.cos(a) * spd, vy: Math.sin(a) * spd * 0.92 - 50,
+        life: 0, max: 0.5 + Math.random() * 0.85,
+        size: 1 + Math.random() * 2.4,
+        col: cols[(Math.random() * cols.length) | 0]
+      });
+    }
+  }
+
+  // ---- main loop -----------------------------------------------------------
+  let time = 0, last = performance.now(), lastRender = performance.now(), frameAcc = 0, fpsEMA = 60;
+  const FRAME_MS = 1000 / 60;                 // 锁 ~60fps（210Hz 屏否则按 3.5 倍狂渲）
+  // adaptive quality: auto step-down if the real device can't hold 60fps
+  let drawFrac = 1, dustOn = true, qualityLevel = 0, perfAcc = 0, perfFrames = 0, workEMA = 0, upStreak = 0, perfHard = false;
+
+  // ---- 开场 hook：载入时一段电影级入场（深海黑暗 → 一粒微光绽放 → 粒子汇聚成水母 → 浮出标题）----
+  const titleEl = document.querySelector('.title');
+  const introTagEl = document.getElementById('introTag');
+  if (IS_MOBILE && introTagEl) introTagEl.textContent = '点一下 · 让它炸开';   // 手机端默认触控，不写“握拳”
+  const uiFadeEls = [document.getElementById('gestureBtn'), document.getElementById('sfxBtn'), document.getElementById('camPick')].filter(Boolean);
+  const INTRO_ON = !/[?&]intro=0\b/i.test(location.search)
+                && !/[?&](fx|burstphase|swimphase|burst|debug)=/i.test(location.search)
+                && !TEST_BURST;
+  const INTRO_DUR = 5600;
+  const INTRO_AT = (() => { const m = /[?&]introAt=([0-9.]+)/i.exec(location.search); return m ? parseFloat(m[1]) : -1; })();   // 冻帧（仅验证）
+  let introT = 0, introActive = INTRO_ON, introReveal = INTRO_ON ? 0 : 1, introZoom = 1, introFade = INTRO_ON ? 1 : 0;
+  let introSeeded = false, introTagFade = INTRO_ON ? 1 : 0;
+  if (INTRO_ON) {
+    if (titleEl) titleEl.style.opacity = '0';
+    for (const el of uiFadeEls) el.style.opacity = '0';
+    if (introTagEl) introTagEl.style.opacity = '0';
+    introTagEl && (introTagEl.style.opacity = '0');
+  }
+
+  function frame(now) {
+    frameAcc += now - last; last = now;
+    if (frameAcc < FRAME_MS) { requestAnimationFrame(frame); return; }
+    frameAcc -= FRAME_MS; if (frameAcc > FRAME_MS) frameAcc = 0;
+    const dtRaw = now - lastRender;
+    const dt = Math.min(48, dtRaw); lastRender = now; time += dt;
+    { const fI = 1000 / Math.max(1, dtRaw); fpsEMA += (fI - fpsEMA) * 0.08; if (fpsEMA > 240) fpsEMA = 240; }
+    const workT0 = performance.now();
+    const kdt = dt / 16.67;
+    // ---- 开场 hook 时间线（任意点击/按键立即跳过）----
+    if (introActive) {
+      if (INTRO_AT >= 0) { introT = INTRO_AT * INTRO_DUR; introSeeded = true; } else { introT += dt; }
+      const ip = Math.min(1, introT / INTRO_DUR);
+      let rv = Math.max(0, Math.min(1, (ip - 0.10) / 0.48));
+      introReveal = rv * rv * (3 - 2 * rv);                         // 粒子由中心逐渐"长"出来
+      introZoom = ip < 0.64 ? (0.72 + 0.33 * (ip / 0.64))
+                            : (1.05 - 0.05 * Math.min(1, (ip - 0.64) / 0.36));   // 镜头推进 + 轻过冲
+      introFade = ip < 0.18 ? (1 - ip / 0.18) : 0;                  // 从全黑浮出
+      if (!introSeeded && ip >= 0.17) {                             // 种子微光绽放：一圈柔和冲击波（无光束）
+        introSeeded = true;
+        ripples.push({ x: W * 0.5, y: H * 0.5, r: 8, max: Math.max(W, H) * 0.5 });
+        jFlash = Math.max(jFlash, 0.30); jZoomV += 0.025; jBellV += 0.07;
+        try { if (sfxOn && audioCtx && audioCtx.state === 'running') { blip(70, 0.85, 'sine', 0.10, 45); blip(560, 0.5, 'triangle', 0.03, 1300); } } catch (_) {}   // 种子绽放音画同步（音频已解锁时）
+      }
+      const tOp = ip < 0.46 ? 0 : ip < 0.74 ? (ip - 0.46) / 0.28 : 1;
+      if (titleEl) titleEl.style.opacity = tOp.toFixed(3);
+      for (const el of uiFadeEls) el.style.opacity = (ip < 0.86 ? 0 : Math.min(1, (ip - 0.86) / 0.14)).toFixed(3);
+      if (introTagEl) introTagEl.style.opacity = (ip < 0.70 ? 0 : Math.min(1, (ip - 0.70) / 0.20)).toFixed(3);
+      if (ip >= 1) { introActive = false; introReveal = 1; introZoom = 1; introFade = 0; introTagFade = 1; if (titleEl) titleEl.style.opacity = '1'; for (const el of uiFadeEls) el.style.opacity = '1'; }
+    } else if (introTagFade > 0.002 && introTagEl) {
+      introTagFade *= Math.pow(0.90, kdt);                          // 入场结束后提示语淡出
+      introTagEl.style.opacity = introTagFade.toFixed(3);
+      if (introTagFade <= 0.002) introTagEl.style.opacity = '0';
+    }
+    gather += (gatherTarget - gather) * 0.16;
+    // juice 瞬态推进：震动/闪/能量指数衰减；伞盖/缩放/握拳用欠阻尼弹簧 → 冲击后过冲回弹
+    jShake *= Math.pow(0.85, kdt);
+    jFlash *= Math.pow(0.88, kdt);
+    flashOut *= Math.pow(0.82, kdt);
+    jEnergy *= Math.pow(0.90, kdt);
+    jBellV += (-jBell * 0.05 - jBellV * 0.16) * kdt; jBell += jBellV * kdt;
+    jZoomV += (-jZoom * 0.06 - jZoomV * 0.18) * kdt; jZoom += jZoomV * kdt;
+    jFistV += (-jFist * 0.05 - jFistV * 0.16) * kdt; jFist += jFistV * kdt;
+    bodyLift += (liftTarget - bodyLift) * 0.12;               // J 平滑升降
+    if (swayCooldown > 0) swayCooldown -= dt;                 // G 冷却
+    // ---- 游动脉冲：快收缩(0.30) → 慢舒张(0.70)，平滑 eased 0..1（生命感核心，慢而有机、非抖动）----
+    swimPhase += dt * 0.00055; if (swimPhase >= 1) swimPhase -= 1;
+    {
+      const sp = swimPhase;
+      let s = sp < 0.30 ? Math.sin((sp / 0.30) * Math.PI * 0.5)
+                        : Math.cos(((sp - 0.30) / 0.70) * Math.PI * 0.5);
+      swimSw = s * s * (3 - 2 * s);                            // smoothstep 收放
+    }
+    if (FORCE_SWIMPHASE >= 0) {                                // 定量冻帧（仅验证）
+      const sp2 = FORCE_SWIMPHASE;
+      let s2 = sp2 < 0.30 ? Math.sin((sp2 / 0.30) * Math.PI * 0.5)
+                          : Math.cos(((sp2 - 0.30) / 0.70) * Math.PI * 0.5);
+      swimSw = s2 * s2 * (3 - 2 * s2);
+    }
+
+    // ---- 爆发玩法动力学：握拳炸开(快·ease-out 0.3~0.6s) / 松拳吸回(慢·1.5~2.5s 带轻微过冲) ----
+    if (TEST_BURST) { if (testBurstStart < 0) testBurstStart = time; burstTarget = (time - testBurstStart) < 500 ? 1 : 0; }
+    if (tapBurstHold > 0) {                       // 鼠标点击爆发保持 → 到期自动螺旋吸回
+      tapBurstHold -= dt;
+      if (tapBurstHold <= 0) { burstTarget = 0; swirl = 1; sfxGather(); }
+    }
+    if (burstTarget > burstAmt) {
+      // 炸开：单调 ease-out（0~1 约 0.3~0.6s 撑开，不来回抖动）
+      burstAmt += (1 - burstAmt) * 0.07 * kdt;
+      if (burstAmt > 1) burstAmt = 1;
+      burstVel = 0;
+    } else if (burstAmt > 0.0015) {
+      // 吸回：快速→慢速指数逼近 0（约 1.5~2.5s）；接近 0 直接归零 → 静止态绝无微振
+      burstAmt += (0 - burstAmt) * 0.045 * kdt;
+      if (burstAmt < 0.002) burstAmt = 0;
+    } else {
+      burstAmt = 0;                                   // 静止态严格归零（修“抽搐”）
+    }
+    if (FORCE_BURST >= 0) burstAmt = FORCE_BURST;              // 定量冻帧（仅验证用）
+    const shapeFade = Math.min(1, Math.max(0, 1 - burstAmt));   // 炸散时非粒子光晕/亮环/内核渐隐
+    shapeFadeG = shapeFade;
+
+    // ---- A–F 特效动力学 ----
+    slowmo *= Math.pow(0.86, kdt);                 // C 慢动作：~0.3s 内退回
+    radialBlur *= Math.pow(0.88, kdt);             // C 径向模糊：快速退回
+    swirl *= Math.pow(0.975, kdt);                 // E 旋涡：随吸回过程持续约 2s
+    if (camCharging) charge = Math.min(1, charge + dt * 0.0011);   // F 蓄力累积（约 0.9s 充满）
+    else charge *= Math.pow(0.94, kdt);                            // 松手/离开 → 蓄力消退
+    burstPower = 1 + (burstPower - 1) * Math.pow(0.94, kdt);       // 爆发强度倍率回落至 1
+    // B 二次殉爆：延迟触发碎屑火花 + 第二圈冲击波
+    if (detonateQueued > 0) {
+      detonateQueued -= dt;
+      if (detonateQueued <= 0) {
+        spawnSparks(180, detonateX || W * 0.5, detonateY || H * 0.5, burstPower);
+        ripples.push({ x: detonateX || W * 0.5, y: detonateY || H * 0.5, r: 6, max: Math.max(W, H) * 0.72 });
+        jFlash = Math.max(jFlash, 0.55);
+        radialBlur = Math.max(radialBlur, 0.5);
+      }
+    }
+    // FX 定量冻帧（?fx=，仅无手势抽帧验证）
+    if (FX_FORCE) {
+      if (FX_FORCE.indexOf('swirl') >= 0) { swirl = 1; if (FORCE_BURST < 0) burstAmt = 0.42; }
+      if (FX_FORCE.indexOf('blur') >= 0) radialBlur = Math.max(radialBlur, 0.9);
+      if (FX_FORCE.indexOf('charge') >= 0) charge = 0.9;
+      if (FX_FORCE.indexOf('debris') >= 0 && !fxDebrisSpawned) {
+        fxDebrisSpawned = true; spawnSparks(260, W * 0.5, H * 0.5, 1.2);
+        for (let si = 0; si < sparks.length; si++) {   // 预推进，静止帧也能看到四散火花
+          const sk = sparks[si], adv = 0.12 + Math.random() * 0.35;
+          sk.life = adv; sk.x += sk.vx * adv * 0.5; sk.y += sk.vy * adv * 0.5;
+        }
+      }
+      if (FX_FORCE.indexOf('ring') >= 0 && !fxRingSpawned) {
+        fxRingSpawned = true;                          // 静止帧：两圈冲击波环
+        ripples.push({ x: W * 0.5, y: H * 0.5, r: 300, max: Math.max(W, H) * 0.9 });
+        ripples.push({ x: W * 0.5, y: H * 0.5, r: 200, max: Math.max(W, H) * 1.35 });
+      }
+      if (FX_FORCE.indexOf('wave') >= 0) { waveAmp = Math.max(waveAmp, 1.0); if (wavePhase < 0.05) wavePhase = 0.30; jEnergy = Math.max(jEnergy, 0.8); }
+      if (FX_FORCE.indexOf('lift') >= 0) { bodyLift = -90; liftTarget = -90; }
+      if (FX_FORCE.indexOf('flash') >= 0) flashOut = 1;
+      if (FX_FORCE.indexOf('swim') >= 0) swimSw = 1;   // 冻一帧峰值收缩看形态
+    }
+    const kdtP = kdt * (1 - 0.55 * slowmo);        // C：慢动作时粒子内部运动放缓
+
+    // ---- 连续交互：手位绝对偏移 + 手势 roll/bell → 目标值→平滑跟随（不一档跳）----
+    const noHandMs = performance.now() - handSeenAt;
+    if (noHandMs > 250) {
+      if (gesture === 'none') {
+        if (Math.abs(velY) > 1e-5 || Math.abs(velX) > 1e-5) {   // 松手惯性滑行
+          spinBase += velY * dt;
+          tRotX = clampRotX(tRotX + velX * dt);
+          const decay = Math.pow(0.94, kdt);
+          velY *= decay; velX *= decay;
+        } else {
+          spinBase += autoSpin * kdt;                            // 缓慢自转
+        }
+      }
+      // 丢手慢回中：手位偏移与 roll 带阻尼衰减，伞盖张缩回中性（1~2s 缓归）
+      const rd = Math.pow(0.985, kdt);
+      handYaw *= rd; handPitch *= rd; tRoll *= rd; liftTarget *= rd;
+      tBellOpen += (1 - tBellOpen) * 0.05;
+    }
+    if (cam.handActive) tRotX = clampRotX(BASE_PITCH + handPitch);
+    tRotY = spinBase + handYaw;
+    rotY += (tRotY - rotY) * 0.20;
+    rotX += (tRotX - rotX) * 0.20;
+    roll += (tRoll - roll) * 0.20;
+    bellOpen += (tBellOpen - bellOpen) * 0.20;
+    const bellDraw = Math.max(0.4, Math.min(1.95, bellOpen + jBell));   // 叠加冲击张缩（含回弹）
+    // ---- 触须软物理：相机角速度注入每根触须的二阶弹簧 → 反向滞后甩动，松手 overshoot 回弹 ----
+    const dRotY = rotY - prevRotY, dRotX = rotX - prevRotX;
+    prevRotY = rotY; prevRotX = rotX;
+    {
+      const dts = dt / 1000;
+      const steps = Math.max(1, Math.ceil(dts / 0.008));      // 子步积分，帧率波动也稳定
+      const h = dts / steps;
+      const PUSHA = 8, PUSHR = 7000, STIFF = 150, DAMP = 11, MAXA = 0.5, MAXR = 110;
+      for (let ti = 0; ti < NTENT; ti++) {
+        let va = TS_VELA[ti] + (-dRotY * PUSHA * TS_MA[ti]);  // 惯性冲量：与旋转反向，转得越快冲量越大
+        let vr = TS_VELR[ti] + (-dRotX * PUSHR * TS_MR[ti]);
+        let pa = TS_POSA[ti], pr = TS_POSR[ti];
+        const dmp = DAMP * TS_DMP[ti];
+        for (let s = 0; s < steps; s++) {                     // v += (-k*x - c*v)h ; x += v*h
+          va += (-pa * STIFF - va * dmp) * h; pa += va * h;
+          vr += (-pr * STIFF - vr * dmp) * h; pr += vr * h;
+        }
+        if (pa > MAXA) { pa = MAXA; if (va > 0) va *= 0.3; } else if (pa < -MAXA) { pa = -MAXA; if (va < 0) va *= 0.3; }
+        if (pr > MAXR) { pr = MAXR; if (vr > 0) vr *= 0.3; } else if (pr < -MAXR) { pr = -MAXR; if (vr < 0) vr *= 0.3; }
+        TS_POSA[ti] = pa; TS_VELA[ti] = va; TS_POSR[ti] = pr; TS_VELR[ti] = vr;
+      }
+    }
+    zoom += (tZoom - zoom) * 0.16;
+
+    // ---- cinematic camera: slow dolly + breathing + handheld micro-shake ----
+    const shX = (Math.sin(time * 0.0011) + 0.6 * Math.sin(time * 0.0027 + 1.3)) * 0.0035;
+    const shY = (Math.sin(time * 0.0009 + 2.0) + 0.6 * Math.sin(time * 0.0021)) * 0.0035;
+    const cosX = Math.cos(rotX + shY), sinX = Math.sin(rotX + shY);
+    const cosY = Math.cos(rotY + shX), sinY = Math.sin(rotY + shX);
+    const focal = 1250 * Math.min(1, Math.max(0.62, Math.min(W, H) / 900 * 0.6 + 0.55));
+    const camD = 1650 - Math.sin(time * 0.00007) * 190;      // slow dolly in / out
+    const bZoom = 1 + Math.sin(time * 0.00009) * 0.035;      // breathing scale
+    const zEff = zoom * bZoom * (1 + jZoom) * introZoom;
+    const lumEq = 0.95 + 0.06 * Math.sin(time * 0.00008 + 0.5);  // breathing luminance
+    // 镜头微震：整世界层抖动（背景不抖 → 有“手持相机被撞一下”的实感）
+    // 生命感：缓慢漂移路径（Lissajous）+ 收缩上浮（推进感）
+    const driftX = Math.sin(time * 0.00035) * 20 + Math.sin(time * 0.00013 + 1.7) * 7 + Math.sin(time * 0.0009) * 7;   // 缓慢游移 + 轻摆
+    const driftY = Math.cos(time * 0.00031) * 14 - 27 * swimSw;                                                        // 浮沉 + 收缩推进上浮
+    const cx = W * 0.5 + driftX + (Math.random() * 2 - 1) * jShake;
+    const cy = H * 0.5 + driftY + (Math.random() * 2 - 1) * jShake + bodyLift;   // 漂移 + 推进 + J 升降
+    // 生物荧光：偶发整伞盖大闪 + 打击瞬时高亮叠加
+    const flash = Math.pow(Math.max(0, Math.sin(time * 0.00018)), 12) + jFlash;
+    // 沿体光波推进：wavePhase 从伞顶(0)扫到触须末端，幅度缓慢衰减
+    if (waveAmp > 0.002) {
+      wavePhase += dt * 0.0036;
+      waveAmp *= Math.pow(0.992, kdt);
+      if (waveAmp < 0.02 || wavePhase > 1.8) waveAmp = 0;
+    }
+    const rimSc = focal / camD;
+    const rimY = cy + (Y0 + BELL_H) * rimSc * zEff;
+    const baseR = BELL_R * rimSc * zEff;
+
+    for (let i = ripples.length - 1; i >= 0; i--) {
+      const rp = ripples[i];
+      rp.r += 26 * kdt * (1 - rp.r / rp.max * 0.5);
+      if (rp.r > rp.max) ripples.splice(i, 1);
+    }
+
+    // ---- background（预渲染位图直接 blit，比每帧全屏渐变填充快）----
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    if (bgCv) ctx.drawImage(bgCv, 0, 0, W, H); else { ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, W, H); }
+
+    ctx.globalCompositeOperation = 'lighter';
+
+    if (!perfHard) drawNebula();
+    drawTopHaze(cx, time);
+
+    // distant stars
+    for (let i = 0; i < STARS; i++) {
+      const tw = 0.55 + 0.45 * Math.sin(time * 0.0012 + i * 1.7);
+      const a = starA[i] * tw;
+      if (starB[i]) {
+        const s = starS[i] * 5.2;
+        ctx.globalAlpha = a * 0.8;
+        ctx.drawImage(starSprite, starX[i] * W - s * 0.5, starY[i] * H - s * 0.5, s, s);
+      } else {
+        ctx.globalAlpha = a;
+        ctx.fillStyle = '#c7d4ff';
+        ctx.fillRect(starX[i] * W, starY[i] * H, starS[i], starS[i]);
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    // ---- 漂浮萤光浮尘（additive 柔点，梦幻深度层）----
+    for (let i = 0; i < MOTES; i++) {
+      moteY[i] -= moteV[i] * dt / 1000;
+      if (moteY[i] < -0.08) { moteY[i] = 1.08; moteX[i] = Math.random(); }
+      const tw = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(time * 0.0016 + moteP[i]));
+      const x = (moteX[i] + Math.sin(time * 0.0006 + moteP[i]) * 0.02) * W;
+      const y = moteY[i] * H;
+      const s = moteR[i] * (0.8 + 0.4 * tw);
+      ctx.globalAlpha = 0.05 * tw;
+      ctx.drawImage(moteHue[i] ? moteSpriteB : moteSpriteA, x - s * 0.5, y - s * 0.5, s, s);
+    }
+    ctx.globalAlpha = 1;
+
+    // core halo (breathing)
+    const pulse = 0.86 + 0.14 * Math.sin(time * 0.0012) + charge * 0.55;   // F 蓄力时核心整体提亮
+    if (coreHaloGrad) {
+      ctx.globalAlpha = pulse * shapeFade * introReveal;
+      ctx.fillStyle = coreHaloGrad.g;
+      ctx.beginPath(); ctx.arc(cx, cy, coreHaloGrad.r, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    // 伞盖内部结构：放射管 + 马蹄形生殖腺 + 口柄暗影（画在核光晕之下，若隐若现）
+    // 手掌 roll → 整体自转（屏幕空间绕画面中心）；roll≈0 时跳过、零影响（不破坏已冻结视觉）
+    const rollOn = Math.abs(roll) > 0.0006;
+    if (rollOn) { ctx.save(); ctx.translate(cx, cy); ctx.rotate(roll); ctx.translate(-cx, -cy); }
+    drawBellInternal(cx, cy, 1 + 0.14 * Math.sin(time * 0.0015 - 1.4), cosX, sinX, cosY, sinY, focal, camD, zEff, time, (0.7 + 1.3 * flash) * shapeFade * introReveal);
+
+    // soft warm-gold nucleus mist: ONE soft gradient instead of piling particles (stops white blow-out)
+    if (nucleusGrad) {
+      ctx.globalAlpha = Math.min(1, (0.66 + 0.08 * Math.sin(time * 0.0011) + 1.3 * flash) * (1 + charge * 1.1)) * shapeFade * introReveal;
+      ctx.fillStyle = nucleusGrad.g;
+      ctx.beginPath(); ctx.arc(cx, cy, nucleusGrad.r, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // ---- project particles（含生物有机运动：伞盖张合 / 触须波 / 微粒缓漂）----
+    const bobBody = Math.sin(time * 0.0004) * 30;   // 整体缓慢浮沉（更慢更沉）
+    const gatherEff = Math.max(-0.6, Math.min(1.55, gather + jFist * 0.7 + charge * 0.9));   // 握拳聚拢 + F 蓄力压缩，叠加过冲回弹
+    for (let i = 0; i < N; i++) {
+      ANGLE[i] += OMEGA[i] * kdtP;
+      const ty = TYPE[i], pa = PARAM[i], ph = PHASE[i];
+      let rad = RADIUS[i], ang = ANGLE[i], hy = HEIGHT[i];
+
+      if (ty === 0) {                       // 伞盖：收缩-放松改变形状（伞缘内收↔外张，伞顶独立起伏）
+        const br = Math.sin(time * 0.0009 - 1.4);
+        rad *= 1 + (0.02 + 0.12 * pa) * br;
+        rad *= bellDraw * (1 - 0.13 * swimSw);   // 伞盖张缩（叠加冲击回弹）+ 游动收缩
+        hy += bobBody - (1 - pa) * Math.sin(time * 0.0011) * 8;
+      } else if (ty === 1) {                // 触须：有机 S 形 + 去同步下行波 + 尖端拖尾
+        const ti = TID[i], p0 = TPH[ti], fr = TFR[ti], am = TAMP[ti];
+        const wv  = Math.sin(time * 0.0011 * fr - pa * 5.5 + p0);              // 下行行波（每根不同，更慢）
+        const sC  = Math.sin(pa * 3.1 + p0) * 0.62 + Math.sin(pa * 7.3 + p0 * 1.7) * 0.42;  // 有机 S 形
+        const lag = Math.sin(time * 0.0011 * fr - pa * 5.5 - pa * 3.2 + p0);   // 尖端延迟（次级运动，更明显）
+        ang += (wv * 0.16 + sC * 0.12 + lag * 0.12) * pa * am;                 // 切向摆（明显的漂浮波及）
+        rad += (wv * 32 + sC * 18) * pa * am;                                  // 径向摆（水流更湿）
+        rad -= pa * pa * pa * TCURL[ti] * (14 + 7 * Math.sin(time * 0.0008 * fr + p0));  // 尖端卷曲随时间起伏（活）
+        const tipW = 0.22 + 0.78 * pa * pa;                                    // 尖端甩得多、根部少 → 甩动沿触须往下传
+        ang += TS_POSA[ti] * tipW;                                             // 切向甩动（随转身滞后）
+        rad += TS_POSR[ti] * tipW;                                             // 径向甩动（随俯仰滞后）
+        const brT = 1 + 0.14 * Math.sin(time * 0.0009 - 1.4);                  // 与伞缘完全同步的呼吸因子
+        rad *= bellDraw * brT * (1 - 0.13 * swimSw);                           // 伞缘怎么呼吸/收缩，根部就怎么走 → 永远咬住伞缘不断开
+        hy  += bobBody * (1.0 - 0.30 * pa) + Math.sin(time * 0.0009 * fr - pa * 6.0 + p0) * 6 * pa;  // 根部与伞缘同一浮沉
+        ang += swimSw * 0.20 * pa * Math.sin(time * 0.0016 * fr + p0 * 1.3);   // 收缩时触须甩动（越靠尖端越大）
+        rad += swimSw * 26 * pa * pa;                                          // 收缩时尖端外张拖曳（根部不动 → 连接自然）
+        hy  += -swimSw * 6 * pa;                                               // 收缩时触须随伞缘上提贴合
+        rad += swimSw * Math.sin(time * 0.0016 * fr - pa * 7 + p0) * 10 * pa;   // 收缩时沿触须下行的波动（活）
+      } else if (ty === 2) {                // 内部荧光：轻微脉动
+        rad *= 1 + 0.03 * Math.sin(time * 0.0018 + pa * 6);
+        hy += bobBody * 0.7;
+      } else {                              // 浮游微粒：环境缓漂
+        ang += Math.sin(time * 0.0004 + ph) * 0.02;
+        rad += Math.sin(time * 0.0005 + ph * 1.7) * 6;
+        hy += Math.sin(time * 0.0006 + ph) * 8 + bobBody * 0.4;
+      }
+      rad *= (1 - gatherEff * 0.55);        // 握拳：向轴心聚拢（带回弹）
+
+      // 握拳炸开 / 松拳吸回：每颗粒子加离心爆散偏移（burstAmt 由全局弹簧驱动，0=重组）
+      const bAmt = burstAmt * BSD[i] * burstPower;
+      let x = rad * Math.cos(ang) + BXD[i] * bAmt;
+      let z = rad * Math.sin(ang) + BZD[i] * bAmt;
+      hy += BYD[i] * bAmt;
+      // E 螺旋旋涡吸回：回收阶段对 (x,z) 做小角度切向旋转（无 trig，逐粒子相位错开 → 螺旋）
+      if (swirl > 0.0006) {
+        const conv = 1 - Math.max(0, burstAmt);
+        if (conv > 0.01) {
+          const th = swirl * conv * SWP[i] * 0.55;
+          const nx = x - z * th, nz = z + x * th;
+          x = nx; z = nz;
+        }
+      }
+      const y1 = hy * cosX - z * sinX;
+      const z1 = hy * sinX + z * cosX;
+      const x1 = x * cosY + z1 * sinY;
+      const z2 = -x * sinY + z1 * cosY;
+      const sc = focal / (camD - z2);
+      let px = cx + x1 * sc * zEff;
+      let py = cy + y1 * sc * zEff;
+
+      if (mouseOn && gesture !== 'pinch') {
+        const dx = px - mx, dy = py - my;
+        const d2 = dx * dx + dy * dy;
+        const RR = 190;
+        if (d2 < RR * RR) {
+          const d = Math.sqrt(d2) + 0.001;
+          const f = 1 - d / RR;
+          const push = f * f * 46;
+          px += dx / d * push; py += dy / d * push;
+        }
+      }
+      for (let ri = 0; ri < ripples.length; ri++) {
+        const rp = ripples[ri];
+        const dx = px - rp.x, dy = py - rp.y;
+        const d = Math.sqrt(dx * dx + dy * dy) + 0.001;
+        const band = Math.abs(d - rp.r);
+        if (band < 80) {
+          const f = 1 - band / 80;
+          const push = f * f * 96 * (1 - rp.r / rp.max);   // stronger; rebounds as the wave passes
+          px += dx / d * push; py += dy / d * push;
+        }
+      }
+
+      oSXA[i] = sxA[i]; oSYA[i] = syA[i];   // 保留上一帧屏幕位置（拖尾）
+      sxA[i] = px; syA[i] = py;
+
+      // depth 0 (far) .. 1 (near)
+      let depth = (z2 + GAL_R) / (2 * GAL_R);
+      depth = depth < 0 ? 0 : depth > 1 ? 1 : depth;
+
+      const b = BUCKET[i];
+      // 沿体坐标（伞盖0..1，触须1..2）→ 自上而下的荧光亮带
+      const bcoord = ty === 0 ? pa : ty === 1 ? 1.0 + pa : -1;
+      let wav = 1;
+      if (bcoord >= 0) {
+        const w = 0.5 + 0.5 * Math.sin(time * 0.0011 - bcoord * 6.2);
+        wav = 0.45 + 1.55 * w * w * w;
+      }
+      if (ty === 0 || ty === 2) wav *= (1 + 2.6 * flash);   // 偶发整伞盖大闪
+
+      // 粒子感加强：缩小光晕倍率/尺寸上限、抬高单点亮度峰值 → 颗粒分明、留出暗隙
+      let glow, baseA, maxPx;
+      if (ty === 1)      { glow = 1.9; baseA = 0.46; maxPx = 8; }
+      else if (ty === 2) { glow = 2.0; baseA = 0.80; maxPx = 10; }
+      else if (ty === 3) { glow = 1.4; baseA = 0.24; maxPx = 6; }
+      else               { glow = b === B_CORE ? 1.9 : 1.75; baseA = 0.36; maxPx = b === B_CORE ? 8 : 11; }
+      if (ty === 1) { baseA *= (1 + 0.7 * pa * pa); glow = 1.9 + 0.7 * pa; }   // 末端拖尾余晖更亮
+      let s = SIZE[i] * sc * zoom * glow * (0.72 + 0.5 * depth);
+      szA[i] = s < 1.2 ? 1.2 : s > maxPx ? maxPx : s;
+
+      // 圣诞树灯串经验：每颗粒子独立节奏点亮 + 偶发高光闪烁，不整齐划一（比单一正弦更“有灯”感）
+      const sp1 = Math.sin(time * 0.0017 * TWK[i] + ph);            // 基础呼吸（每颗不同频）
+      const sp2 = Math.sin(time * 0.0041 * (0.6 + 0.8 * pa) + ph * 1.9);  // 快节奏灯点
+      const sparkle = sp2 > 0 ? sp2 * sp2 : 0;                      // 偶发亮点（尖峰）
+      const twk = 0.70 + 0.18 * sp1 + 0.22 * sparkle;               // 呼吸 + 独立灯串闪
+      // 圣诞树手法①：伞盖粒子壳分层——按 顶/中/缘 × 内/外 取壳层，层间亮度基准与呼吸相位错开（纯粒子，不改几何）
+      let shellLum = 1;
+      if (ty === 0) {
+        const band = (pa < 0.33 ? 0 : pa < 0.66 ? 1 : 2) + (RADIUS[i] < BELL_R * 0.72 ? 3 : 0);
+        shellLum = SHELL_BASE[band] * (0.90 + 0.10 * Math.sin(time * 0.0013 - band * 1.9));
+      }
+      let al = baseA * (0.42 + 0.58 * depth) * twk * lumEq * wav * shellLum;
+      let wv = 0;                                        // 沿体光波命中强度 0..1
+      if (waveAmp > 0.01 && bcoord >= 0) {              // 沿体光波：螺旋分层 + 粒子亮度脉冲（不画任何光束）
+        const aOff = ((ANGLE[i] % TAU) + TAU) % TAU / TAU;   // 方位角 0..1
+        const wd = bcoord - wavePhase - 0.35 * aOff;         // 按角度错开 → 螺旋扫过，不整圈同时亮
+        wv = waveAmp * Math.exp(-wd * wd * 7);
+        al *= (1 + (2.0 + 1.6 * jEnergy) * wv);
+      }
+      al *= (1 + 0.4 * burstAmt);                 // 炸散时提亮 → 四散粒子更亮更颗颗分明
+      if (swimSw > 0.01) al *= 1 + (ty === 0 ? 0.36 : ty === 2 ? 0.50 : 0.22) * swimSw;   // 收缩时生物荧光脉冲
+      wvA[i] = wv;
+      alA[i] = al < 0 ? 0 : al > 1 ? 1 : al;
+    }
+
+    // ---- draw particles grouped by color bucket (pre-sorted; small dots = fillRect) ----
+    const dfLive = drawFrac * introReveal;                         // 开场：粒子按 reveal 渐显
+    for (let b = 0; b < NB_ALL; b++) {
+      const sp = sprites[b], list = BUCKET_LIST[b];
+      ctx.fillStyle = bucketFill[b];
+      for (let k = 0, nn = (dfLive >= 1 ? list.length : (list.length * dfLive) | 0); k < nn; k++) {
+        const i = list[k];
+        const s = szA[i];
+        // 离屏剔除：完全在画布外的粒子不画（大幅省 drawImage，缩放进/大画布时尤其明显）
+        if (sxA[i] + s < 0 || sxA[i] - s > W || syA[i] + s < 0 || syA[i] - s > H) continue;
+        // 爆散拖尾：朝上一帧位置拖渐隐 ghost（只在炸开时出现，常量级开销）
+        const trA = burstAmt * 0.5;
+        if (trA > 0.10) {                       // 只在强爆炸段画拖尾（省性能，回收段不拖）
+          // D 拖尾光丝：上一帧→当前帧之间补 1 个中间样本 → 短而亮的光丝
+          if (burstAmt > 0.30) {
+            const mxs = oSXA[i] + (sxA[i] - oSXA[i]) * 0.5;
+            const mys = oSYA[i] + (syA[i] - oSYA[i]) * 0.5;
+            ctx.globalAlpha = alA[i] * trA * 0.7;
+            if (s < 3.6) ctx.fillRect(mxs - s * 0.5, mys - s * 0.5, s, s);
+            else ctx.drawImage(sp, mxs - s * 0.45, mys - s * 0.45, s * 0.9, s * 0.9);
+          }
+          ctx.globalAlpha = alA[i] * trA;
+          if (s < 3.6) ctx.fillRect(oSXA[i] - s * 0.5, oSYA[i] - s * 0.5, s, s);
+          else ctx.drawImage(sp, oSXA[i] - s * 0.55, oSYA[i] - s * 0.55, s * 1.1, s * 1.1);
+        }
+        ctx.globalAlpha = alA[i];
+        if (s < 3.6) {
+          ctx.fillRect(sxA[i] - s * 0.5, syA[i] - s * 0.5, s, s);
+        } else {
+          ctx.drawImage(sp, sxA[i] - s * 0.5, syA[i] - s * 0.5, s, s);
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    // 沿体光波“颜色脉冲”：命中波前的粒子再叠一层青白荧光——纯粒子点，不画任何光束/光柱
+    if (waveAmp > 0.02) {
+      ctx.fillStyle = 'rgb(205,255,247)';               // 生物荧光青白
+      const stp = dfLive >= 1 ? 1 : Math.max(1, Math.round(1 / dfLive));
+      for (let i = 0; i < N; i += stp) {
+        const wv2 = wvA[i];
+        if (wv2 > 0.05) {
+          const s2 = szA[i] * (1.0 + 0.5 * wv2 + 0.6 * jEnergy * wv2);
+          ctx.globalAlpha = Math.min(0.6, wv2 * 1.1);
+          ctx.fillRect(sxA[i] - s2 * 0.5, syA[i] - s2 * 0.5, s2, s2);
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // 幽紫脉冲：沿伞盖向下扫过的荧光（青绿核 + 幽紫）
+    {
+      const pp = (time * 0.00022) % 1;
+      const psY = cy + ((Y0 + BELL_H * 0.10) + BELL_H * 0.95 * pp + bobBody) * rimSc * zEff;
+      const pr = baseR * (0.52 + 0.12 * Math.sin(pp * Math.PI));
+      const pg = ctx.createRadialGradient(cx, psY, 0, cx, psY, pr);
+      const pa2 = 0.16 * Math.sin(Math.min(1, pp) * Math.PI) * shapeFade;
+      pg.addColorStop(0, `rgba(180,130,255,${pa2})`);
+      pg.addColorStop(0.5, `rgba(130,110,255,${pa2 * 0.4})`);
+      pg.addColorStop(1, 'rgba(90,80,200,0)');
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 1; ctx.fillStyle = pg;
+      ctx.beginPath(); ctx.arc(cx, psY, pr, 0, TAU); ctx.fill();
+    }
+
+    // ---- 伞缘亮环（按当前帧真实投影：随呼吸缩放 / rotY 转椭圆 / 浮沉上下移）----
+    const breath = 1 + 0.14 * Math.sin(time * 0.0009 - 1.4);
+    const rimRw = BELL_R * breath * bellDraw * (1 - gatherEff * 0.55) * (1 - 0.13 * swimSw);
+    const rimHw = (Y0 + BELL_H) + bobBody;
+    drawBellRim(cx, cy, rimRw, rimHw, cosX, sinX, cosY, sinY, focal, camD, zEff, time, (0.7 + 1.3 * flash) * shapeFade * introReveal);
+    if (rollOn) ctx.restore();
+
+    // ---- dust lanes: project + overlay dark occlusion (source-over) ----
+    ctx.globalCompositeOperation = 'source-over';
+    if (dustOn) for (let i = 0; i < ND; i++) {
+      DANG[i] += DOMEGA[i] * kdt;
+      const rad = DRAD[i];
+      const a = DANG[i];
+      const x = rad * Math.cos(a);
+      const z = rad * Math.sin(a);
+      const y = DH[i];
+      const y1 = y * cosX - z * sinX;
+      const z1 = y * sinX + z * cosX;
+      const x1 = x * cosY + z1 * sinY;
+      const z2 = -x * sinY + z1 * cosY;
+      const dsc = focal / (camD - z2);
+      const dxp = cx + x1 * dsc * zEff;
+      const dyp = cy + y1 * dsc * zEff;
+      let dpt = (z2 + GAL_R) / (2 * GAL_R);
+      dpt = dpt < 0 ? 0 : dpt > 1 ? 1 : dpt;
+      let s = DSIZE[i] * dsc * zEff * 1.1;
+      s = s < 6 ? 6 : s > 64 ? 64 : s;
+      ctx.globalAlpha = 0.20 * (0.30 + 0.70 * dpt);
+      ctx.drawImage(dustSprite, dxp - s * 0.5, dyp - s * 0.5, s, s);
+    }
+    ctx.globalAlpha = 1;
+
+    // ---- A 冲击波环（环形扩散：宽柔辉外圈 + 窄亮芯内圈，青白→幽紫）----
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < ripples.length; i++) {
+      const rp = ripples[i];
+      const u = rp.r / rp.max, fade = 1 - u;
+      ctx.globalAlpha = fade * 0.22;
+      ctx.lineWidth = 3 + 14 * fade;
+      ctx.strokeStyle = 'rgba(150,130,255,1)';
+      ctx.beginPath(); ctx.arc(rp.x, rp.y, rp.r, 0, TAU); ctx.stroke();
+      ctx.globalAlpha = fade * 0.62;
+      ctx.lineWidth = 1.2 + 3.5 * fade;
+      ctx.strokeStyle = 'rgba(150,255,235,1)';
+      ctx.beginPath(); ctx.arc(rp.x, rp.y, rp.r, 0, TAU); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    // ---- B 二次殉爆碎屑火花（有界粒子，逐帧积分，短光丝轨迹）----
+    if (sparks.length) {
+      const sdt = dt / 1000;
+      const sdamp = Math.pow(0.985, kdt);
+      for (let i = sparks.length - 1; i >= 0; i--) {
+        const sk = sparks[i];
+        sk.life += sdt;
+        if (sk.life >= sk.max) { sparks.splice(i, 1); continue; }
+        sk.vy += 260 * sdt;
+        sk.vx *= sdamp; sk.vy *= sdamp;
+        sk.x += sk.vx * sdt; sk.y += sk.vy * sdt;
+        const lf = 1 - sk.life / sk.max;
+        const ss = sk.size * (0.6 + 0.9 * lf);
+        ctx.globalAlpha = lf * 0.9;
+        ctx.fillStyle = 'rgba(' + sk.col + ',1)';
+        ctx.fillRect(sk.x - ss * 0.5, sk.y - ss * 0.5, ss, ss);
+        const tx = sk.x - sk.vx * 0.02, ty = sk.y - sk.vy * 0.02;
+        ctx.globalAlpha = lf * 0.35;
+        ctx.strokeStyle = 'rgba(' + sk.col + ',1)';
+        ctx.lineWidth = Math.max(1, ss * 0.5);
+        ctx.beginPath(); ctx.moveTo(sk.x, sk.y); ctx.lineTo(tx, ty); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // ---- transient events: 生物荧光脉冲 + 缓浮光 ----
+    if (time > nextSuper) {
+      const ang = Math.random() * TAU;
+      const rr = (0.12 + Math.random() * 0.5) * Math.min(W, H) * 0.42;
+      supernovas.push({ x: cx + Math.cos(ang) * rr, y: cy + Math.sin(ang) * rr * 0.72, born: now, dur: 950 });
+      nextSuper = time + 3500 + Math.random() * 7000;
+    }
+    for (let i = supernovas.length - 1; i >= 0; i--) {
+      const sn = supernovas[i];
+      const age = (now - sn.born) / sn.dur;
+      if (age >= 1) { supernovas.splice(i, 1); continue; }
+      const e = age < 0.12 ? age / 0.12 : Math.pow(1 - (age - 0.12) / 0.88, 2);
+      const R = 14 + age * 26;
+      const gg = ctx.createRadialGradient(sn.x, sn.y, 0, sn.x, sn.y, R);
+      gg.addColorStop(0, `rgba(235,255,250,${0.9 * e})`);
+      gg.addColorStop(0.4, `rgba(120,245,225,${0.45 * e})`);
+      gg.addColorStop(1, 'rgba(70,180,235,0)');
+      ctx.globalAlpha = 1; ctx.fillStyle = gg;
+      ctx.beginPath(); ctx.arc(sn.x, sn.y, R, 0, TAU); ctx.fill();
+      const L = (10 + age * 34) * e;
+      ctx.strokeStyle = `rgba(190,255,240,${0.7 * e})`; ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(sn.x - L, sn.y); ctx.lineTo(sn.x + L, sn.y);
+      ctx.moveTo(sn.x, sn.y - L); ctx.lineTo(sn.x, sn.y + L);
+      ctx.stroke();
+    }
+    if (time > nextMeteor) {
+      const fromLeft = Math.random() < 0.5;
+      const y0 = H * (0.08 + Math.random() * 0.55);
+      const x0 = fromLeft ? -60 : W + 60;
+      const ang = fromLeft ? (0.30 + Math.random() * 0.28) : (Math.PI - 0.30 - Math.random() * 0.28);
+      const sp = 80 + Math.random() * 90;                  // 深海缓浮，而非流星
+      meteors.push({ x: x0, y: y0, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, born: now, dur: 2600 });
+      nextMeteor = time + 4500 + Math.random() * 8000;
+    }
+    for (let i = meteors.length - 1; i >= 0; i--) {
+      const m = meteors[i];
+      const age = (now - m.born) / m.dur;
+      if (age >= 1) { meteors.splice(i, 1); continue; }
+      m.x += m.vx * dt / 1000; m.y += m.vy * dt / 1000;
+      const e = age < 0.2 ? age / 0.2 : 1 - (age - 0.2) / 0.8;
+      const tx = m.x - m.vx * 0.13, ty = m.y - m.vy * 0.13;
+      const mg = ctx.createLinearGradient(m.x, m.y, tx, ty);
+      mg.addColorStop(0, `rgba(235,255,250,${0.9 * e})`);
+      mg.addColorStop(0.5, `rgba(150,245,230,${0.45 * e})`);
+      mg.addColorStop(1, 'rgba(80,180,235,0)');
+      ctx.globalAlpha = 1; ctx.strokeStyle = mg; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(m.x, m.y); ctx.lineTo(tx, ty); ctx.stroke();
+      ctx.globalAlpha = e; ctx.fillStyle = '#a8fff0';
+      ctx.beginPath(); ctx.arc(m.x, m.y, 1.6, 0, TAU); ctx.fill();
+    }
+
+    // ---- 前景虚焦微尘 / 上升气泡（景深）----
+    if (!perfHard) drawBubbles(dt);
+
+    // ---- C 炸开一瞬轻微径向模糊（屏幕空间径向光丝，固定成本 48 条）----
+    if (radialBlur > 0.03) {
+      ctx.globalCompositeOperation = 'lighter';
+      const bcx = W * 0.5, bcy = H * 0.5;
+      const rr0 = Math.min(W, H) * 0.06;
+      const rr1 = Math.min(W, H) * (0.42 + 0.16 * radialBlur);
+      const NB2 = 48;
+      for (let k = 0; k < NB2; k++) {
+        const a = (k / NB2) * TAU + time * 0.0006;
+        const ca = Math.cos(a), sa = Math.sin(a);
+        const g2 = ctx.createLinearGradient(bcx + ca * rr0, bcy + sa * rr0, bcx + ca * rr1, bcy + sa * rr1);
+        g2.addColorStop(0, `rgba(175,225,255,${0.10 * radialBlur})`);
+        g2.addColorStop(0.5, `rgba(150,150,255,${0.05 * radialBlur})`);
+        g2.addColorStop(1, 'rgba(120,120,255,0)');
+        ctx.globalAlpha = 1; ctx.strokeStyle = g2; ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.moveTo(bcx + ca * rr0, bcy + sa * rr0);
+        ctx.lineTo(bcx + ca * rr1, bcy + sa * rr1);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // ---- 电影级 Bloom 柔辉（半分辨率降采样+模糊 → 叠加回主画布）----
+    if (bloomOn && bloomCtx && bloomCv) {
+      const bw = bloomCv.width, bh = bloomCv.height;
+      bloomCtx.globalCompositeOperation = 'source-over';
+      bloomCtx.clearRect(0, 0, bw, bh);
+      bloomCtx.filter = 'blur(2px)';
+      bloomCtx.drawImage(canvas, 0, 0, bw, bh);
+      bloomCtx.filter = 'none';
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = Math.min(0.90, 0.28 + 0.45 * Math.max(0, burstAmt) + 0.35 * Math.min(1, jFlash));
+      ctx.drawImage(bloomCv, 0, 0, W, H);
+      // 爆发瞬间 RGB 色散（chromatic aberration）
+      if (burstAmt > 0.12) {
+        ctx.globalAlpha = 0.12 * Math.min(1, burstAmt);
+        ctx.drawImage(bloomCv, -6, 0, W, H);
+        ctx.drawImage(bloomCv, 6, 0, W, H);
+      }
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      // 胶片颗粒（极轻，增强电影质感）
+      if (grainPat) {
+        ctx.globalCompositeOperation = 'overlay';
+        ctx.globalAlpha = 0.028;
+        ctx.save();
+        ctx.translate(-((Math.random() * 128) | 0), -((Math.random() * 128) | 0));
+        ctx.fillStyle = grainPat;
+        ctx.fillRect(0, 0, W + 128, H + 128);
+        ctx.restore();
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = 'source-over';
+      }
+    }
+
+    // ---- 炸开瞬时全屏爆闪（强闪冲击）----
+    if (flashOut > 0.01) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.40 * flashOut * flashOut;
+      ctx.fillStyle = 'rgba(205,240,255,1)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    // ---- 电影级调色分级（soft-light：暗部偏深海青、中间幽紫、亮部青，爆发时更浓）----
+    // soft-light 是逐像素混合、开销最大的整屏 pass；降档到 2 级时关掉，保住帧率
+    if (GRADE_ON && qualityLevel < 1) {
+      const cg = ctx.createLinearGradient(0, H * 0.08, W, H * 0.92);
+      cg.addColorStop(0, 'rgba(24,70,110,0.9)');
+      cg.addColorStop(0.45, 'rgba(95,60,175,0.55)');
+      cg.addColorStop(1, 'rgba(30,190,215,0.85)');
+      ctx.globalCompositeOperation = 'soft-light';
+      ctx.globalAlpha = 0.30 + 0.30 * Math.min(1, burstAmt + jFlash);
+      ctx.fillStyle = cg;
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    // ---- 远景压暗暗角（主体突出）----
+    if (vigCv) {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1; ctx.drawImage(vigCv, 0, 0, W, H);
+    }
+
+    // ---- 开场 hook 覆盖层：黑场浮出 + 中心种子微光（只靠辉光，无光束）----
+    if (introFade > 0.001) {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = introFade;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
+    }
+    if (introActive && introT < INTRO_DUR * 0.24) {
+      const st = Math.max(0, Math.min(1, introT / (INTRO_DUR * 0.24)));
+      const rad = 26 + st * 140;
+      const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
+      grd.addColorStop(0, 'rgba(190,240,255,' + (0.55 * st * st).toFixed(3) + ')');
+      grd.addColorStop(0.45, 'rgba(120,190,255,' + (0.24 * st).toFixed(3) + ')');
+      grd.addColorStop(1, 'rgba(80,150,220,0)');
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = grd;
+      ctx.beginPath(); ctx.arc(cx, cy, rad, 0, TAU); ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+
+    // ---- 调试读数（?debug=1）：确认静止态各瞬态量是否归零 ----
+    if (DEBUG_HUD) {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(12, H - 152, 320, 130);
+      ctx.fillStyle = '#8ff';
+      ctx.font = '13px monospace';
+      const dl = [
+        'burstAmt   ' + burstAmt.toFixed(5),
+        'burstTarget ' + burstTarget,
+        'jShake ' + jShake.toFixed(4) + '  jFlash ' + jFlash.toFixed(3),
+        'swirl ' + swirl.toFixed(4) + '  charge ' + charge.toFixed(3),
+        'slowmo ' + slowmo.toFixed(3) + '  blur ' + radialBlur.toFixed(3),
+        'power ' + burstPower.toFixed(3)
+      ];
+      for (let li = 0; li < dl.length; li++) ctx.fillText(dl[li], 20, H - 132 + li * 19);
+      ctx.globalAlpha = 1;
+    }
+    // ---- 帧率读数（?fps=1 或 ?debug=1）：真机验收 ≥55fps 用；耗时=本页自身每帧 JS+绘制的 CPU 时间 ----
+    if (FPS_HUD) {
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(W - 246, 12, 234, 34);
+      ctx.fillStyle = fpsEMA >= 55 ? '#9bf29b' : fpsEMA >= 45 ? '#ffd45e' : '#ff8f8f';
+      ctx.font = '14px monospace';
+      ctx.fillText('FPS ' + fpsEMA.toFixed(0) + '  质量 ' + qualityLevel + '  ' + workEMA.toFixed(1) + 'ms', W - 236, 34);
+      ctx.globalAlpha = 1;
+    }
+
+    // 自适应画质（双向、带滞回）：本页是逐帧 CPU/绘制负载为主，按真实帧率降/升档。
+    // 降档阈值 54 / 升档阈值 62（拉大间隔，避免在临界点 1↔2 来回跳）；升档需连续两轮达标。
+    { const _wms = performance.now() - workT0; workEMA += (_wms - workEMA) * 0.1; }
+    perfAcc += performance.now() - workT0; perfFrames++;
+    if (FORCE_Q >= 0) { qualityLevel = FORCE_Q; }
+    else if (perfFrames >= 45) {
+      perfAcc = 0; perfFrames = 0;
+      if (fpsEMA < 54 && qualityLevel < 2) { qualityLevel++; upStreak = 0; }
+      else if (fpsEMA > 62 && qualityLevel > 0) { if (++upStreak >= 2) { qualityLevel--; upStreak = 0; } }
+      else upStreak = 0;
+    }
+    // 档位落地参数（每帧同步，成本可忽略）。瓶颈是整屏后处理填充，不是粒子数——
+    // 所以降档主要关掉贵的全屏 pass（Bloom/调色/星云/气泡），粒子密度尽量保住，画面反而更"干净"。
+    // 0 满配 / 1 关 Bloom+调色 / 2 性能档(再关星云+气泡+尘埃)
+    if (qualityLevel <= 0)      { drawFrac = 1.0;  dustOn = true;  bloomOn = BLOOM_BASE; perfHard = false; }
+    else if (qualityLevel === 1){ drawFrac = 0.88; dustOn = true;  bloomOn = false;       perfHard = false; }
+    else                        { drawFrac = 0.68; dustOn = false; bloomOn = false;       perfHard = true;  }
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // 开场可跳过：任意点击 / 按键立即结束入场（并阻止这一次点击误触爆发）
+  window.addEventListener('pointerdown', (e) => {
+    if (introActive) { introT = INTRO_DUR; e.stopImmediatePropagation(); e.preventDefault(); }
+  }, { capture: true });
+  window.addEventListener('keydown', (e) => {
+    if ((e.key === 'r' || e.key === 'R') && INTRO_ON) { replayIntro(); return; }
+    if (introActive) introT = INTRO_DUR;
+  });
+  function replayIntro() {
+    if (!INTRO_ON) return;
+    introT = 0; introActive = true; introSeeded = false; introTagFade = 1; introReveal = 0; introZoom = 0.72; introFade = 1;
+    if (titleEl) titleEl.style.opacity = '0';
+    for (const el of uiFadeEls) el.style.opacity = '0';
+    if (introTagEl) introTagEl.style.opacity = '0';
+  }
+
+  // ===================== 摄像头手部手势（MediaPipe HandLandmarker）=====================
+  // 本地 vendor，运行时不依赖外网：
+  //   ./vendor/mediapipe/vision_bundle.mjs   (FilesetResolver + HandLandmarker)
+  //   ./vendor/mediapipe/wasm/               (wasm 运行时)
+  //   ./vendor/hand_landmarker.task          (手部模型)
+  // 任一环节失败（无 vendor / 无摄像头 / 拒绝授权）自动回退鼠标与触屏，渲染层完全不受影响。
+  const camUI = {
+    btn: document.getElementById('gestureBtn'),
+    wrap: document.getElementById('gfx'),
+    video: document.getElementById('camVideo'),
+    canvas: document.getElementById('camCanvas'),
+    hint: document.getElementById('camHint'),
+    close: document.getElementById('camClose'),
+    pick: document.getElementById('camPick')
+  };
+  const camCtx = camUI.canvas.getContext('2d');
+  camUI.canvas.width = 240; camUI.canvas.height = 180;
+
+  // One Euro Filter — removes landmark jitter while keeping motion responsive
+  class OneEuro {
+    constructor(minCutoff, beta, dCutoff) {
+      this.minCutoff = minCutoff; this.beta = beta; this.dCutoff = dCutoff == null ? 1.0 : dCutoff;
+      this.xPrev = null; this.dxPrev = 0; this.tPrev = null;
+    }
+    _alpha(cutoff, dt) { const tau = 1 / (2 * Math.PI * cutoff); return 1 / (1 + tau / dt); }
+    filter(x, t) {
+      if (this.xPrev === null) { this.xPrev = x; this.tPrev = t; return x; }
+      const dt = Math.max(1, (t - this.tPrev) / 1000);
+      this.tPrev = t;
+      const dx = (x - this.xPrev) / dt;
+      const aD = this._alpha(this.dCutoff, dt);
+      const dxHat = aD * dx + (1 - aD) * this.dxPrev; this.dxPrev = dxHat;
+      const cutoff = this.minCutoff + this.beta * Math.abs(dxHat);
+      const a = this._alpha(cutoff, dt);
+      const xHat = a * x + (1 - a) * this.xPrev; this.xPrev = xHat;
+      return xHat;
+    }
+  }
+
+  const HAND_CONNECTIONS = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+
+  const cam = {
+    active: false, loading: false, landmarker: null, stream: null, rafId: 0, handActive: false,
+    filters: Array.from({ length: 21 }, () => ({ x: new OneEuro(1.2, 0.03), y: new OneEuro(1.2, 0.03) })),
+    filters2: Array.from({ length: 21 }, () => ({ x: new OneEuro(1.2, 0.03), y: new OneEuro(1.2, 0.03) })),
+    pinching: false, fisting: false, opening: false,       // hysteresis latches
+    palmPrev: null, palmT: 0, anglePrev: null, sizePrev: 0, pinchSm: 0,
+    lastSeen: 0, burstAt: 0, lastDetect: 0, fistReleaseAt: -1e9, waveAt: -1e9,
+    videoUrl: null, fileMode: false
+  };
+
+  function camHint(html) { camUI.hint.innerHTML = html; }
+  function vdist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+  camUI.btn.addEventListener('click', startCamera);
+  camUI.close.addEventListener('click', stopCamera);
+
+  // ---- 打击感音效：本地 WebAudio 合成（无外链/不联网），仅手势离散触发，默认开、可一键静音 ----
+  const sfxBtnEl = document.getElementById('sfxBtn');
+  let audioCtx = null, sfxOn = true;
+  function ensureAudio() {
+    if (audioCtx) { if (audioCtx.state === 'suspended') audioCtx.resume(); return audioCtx; }
+    try { const AC = window.AudioContext || window.webkitAudioContext; if (AC) audioCtx = new AC(); } catch (e) { audioCtx = null; }
+    return audioCtx;
+  }
+  function blip(freq, dur, type, gainV, sweepTo) {
+    if (!sfxOn) return;
+    const ac = ensureAudio(); if (!ac) return;
+    try {
+      const now2 = ac.currentTime;
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = type || 'sine';
+      o.frequency.setValueAtTime(freq, now2);
+      if (sweepTo) o.frequency.exponentialRampToValueAtTime(sweepTo, now2 + dur);
+      g.gain.setValueAtTime(0.0001, now2);
+      g.gain.exponentialRampToValueAtTime(gainV, now2 + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, now2 + dur);
+      o.connect(g).connect(ac.destination);
+      o.start(now2); o.stop(now2 + dur + 0.03);
+    } catch (e) {}
+  }
+  function sfxWave()  { blip(900, 0.17, 'sine', 0.045, 300); }               // 挥手：轻快下滑 whoosh
+  function sfxFist()  { blip(230, 0.10, 'triangle', 0.075, 110); }            // 握拳：短促闷响
+  function sfxPinch() { blip(1300, 0.055, 'square', 0.03, 950); }             // 捏合：细 tick
+  function sfxPush()  { blip(130, 0.30, 'sine', 0.11, 55); blip(440, 0.11, 'triangle', 0.045, 170); }  // 前推：低频 thump + 上扫
+  function sfxBurst() { blip(80, 0.45, 'sine', 0.15, 40); blip(520, 0.30, 'triangle', 0.05, 1600); }   // 握拳炸开：低频 thump + whoosh 上扫
+  function sfxGather(){ blip(240, 0.55, 'sine', 0.05, 900); }                                          // 松拳吸回：上扬 whoosh
+  function sfxBigBurst(){ blip(55, 0.90, 'sine', 0.20, 32); blip(300, 0.55, 'triangle', 0.06, 2200); blip(760, 0.40, 'triangle', 0.045, 2600); }   // F 蓄力二段爆：更低沉更长的 thump + 双 whoosh
+  if (sfxBtnEl) sfxBtnEl.addEventListener('click', () => {
+    sfxOn = !sfxOn;
+    sfxBtnEl.classList.toggle('off', !sfxOn);
+    sfxBtnEl.textContent = sfxOn ? '🔊 音效' : '🔇 静音';
+    if (sfxOn) ensureAudio();
+  });
+  camUI.btn.addEventListener('click', () => ensureAudio());   // 用户手势内创建/恢复音频上下文
+
+  async function createLandmarker(vision, fileset) {
+    const mk = delegate => vision.HandLandmarker.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: './vendor/hand_landmarker.task', delegate: delegate },
+      runningMode: 'VIDEO', numHands: 1,   // 玩法只用一只手 → 单手下推理量减半，显著减轻主线程/显卡负担
+      minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5
+    });
+    // GPU 推理会和 Canvas 渲染抢同一块显卡（本机同时跑着放大/壁纸/推流时尤其明显）。
+    // ?mdcpu=1 强制 CPU 推理（WASM 多线程），与 GPU 渲染并行，弱显卡上反而更流畅。
+    const forceCpu = /[?&]mdcpu=1\b/.test(location.search);
+    if (forceCpu) { try { return await mk('CPU'); } catch (_) {} }
+    try { return await mk('GPU'); } catch (e) { return await mk('CPU'); }
+  }
+
+  // ---- 摄像头设备列表：填下拉，优先还原上次选择 → 其次 OBS → 其次第一个 ----
+  const CAM_KEY = 'jelly.camId.v2';
+  const CAM_LABEL_KEY = 'jelly.camLabel.v2';
+  const isVirtCam = (label) => /obs|virtual|虚拟|snap|manycam|droidcam/i.test(label || '');
+  function camStoreGet(k) { try { return localStorage.getItem(k) || ''; } catch (_) { return ''; } }
+  function camStoreSet(id, label) { try { localStorage.setItem(CAM_KEY, id || ''); localStorage.setItem(CAM_LABEL_KEY, label || ''); } catch (_) {} }
+  // 用户是否"锁定了"某台摄像头：手动选过 → 持久化记忆 → 刷新/重开都沿用，绝不悄悄退回电脑摄像头
+  let camPickManual = !!camStoreGet(CAM_KEY);
+
+  async function populateCams(preferKeep) {
+    if (!camUI.pick || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+    try {
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const cams = devs.filter(d => d.kind === 'videoinput');
+      const prevId = camUI.pick.value;
+      const prevOpt = camUI.pick.selectedOptions && camUI.pick.selectedOptions[0];
+      const prevLabel = prevOpt ? prevOpt.textContent : '';
+      camUI.pick.innerHTML = '';
+      if (!cams.length) {
+        const o = document.createElement('option'); o.value = ''; o.textContent = '未检测到摄像头'; camUI.pick.appendChild(o);
+        camUI.pick.classList.add('hidepick'); return;
+      }
+      cams.forEach((d, i) => {
+        const o = document.createElement('option');
+        o.value = d.deviceId;
+        o.textContent = d.label || (d.deviceId ? ('摄像头 ' + (i + 1) + '（授权后显示名字）') : '摄像头（点“手势控制”授权后可选择）');
+        camUI.pick.appendChild(o);
+      });
+      const virt = cams.find(c => isVirtCam(c.label));
+      let sel = '';
+      if (camPickManual) {
+        // 手动/记忆选择的优先级最高；deviceId 每次会话可能会变 → 再按"设备名"兜底匹配同一台
+        const byId = cams.find(c => c.deviceId === prevId && prevId) || cams.find(c => c.deviceId === camStoreGet(CAM_KEY) && camStoreGet(CAM_KEY));
+        const byLabel = cams.find(c => c.label && (c.label === camStoreGet(CAM_LABEL_KEY) || c.label === prevLabel));
+        sel = (byId || byLabel || {}).deviceId || '';
+        if (!sel) { sel = virt ? virt.deviceId : cams[0].deviceId; if (typeof camHint === 'function') camHint('之前锁定的摄像头不在了，暂用默认：' + (virt ? virt.label : cams[0].label || '')); }
+      } else {
+        // 还没手动选过：只要认出 OBS/虚拟摄像头（有了名字后）就自动优先它，否则保持原选择/第一台
+        sel = virt ? virt.deviceId : (cams.some(c => c.deviceId === prevId) ? prevId : cams[0].deviceId);
+      }
+      camUI.pick.value = sel;
+      // 只有一台摄像头时下拉无意义 → 隐藏；两台以上才显示供切换
+      camUI.pick.classList.toggle('hidepick', cams.length < 2);
+    } catch (_) {}
+  }
+
+  if (camUI.pick) camUI.pick.addEventListener('change', () => {
+    const id = camUI.pick.value; if (!id) return;
+    const opt = camUI.pick.selectedOptions && camUI.pick.selectedOptions[0];
+    camPickManual = true;
+    camStoreSet(id, opt ? opt.textContent : '');
+    if (cam.active) { stopCamera(); startCamera(); }   // 运行中也允许当场切设备
+  });
+  if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener('devicechange', () => populateCams());
+  populateCams();
+  if (/[?&]camauto=1\b/.test(location.search)) setTimeout(() => { try { startCamera(); } catch (_) {} }, 350);   // ?camauto=1 自测：自动开摄像头
+
+  async function ensureLandmarker() {
+    if (cam.landmarker) return cam.landmarker;
+    const vision = await import('./vendor/mediapipe/vision_bundle.mjs');
+    const fileset = await vision.FilesetResolver.forVisionTasks('./vendor/mediapipe/wasm');
+    cam.landmarker = await createLandmarker(vision, fileset);
+    return cam.landmarker;
+  }
+
+  // 本地手势视频直接驱动（绕开摄像头/OBS）已移除：删除「视频测试」调试入口
+
+  async function startCamera() {
+    if (cam.active || cam.loading) return;
+    cam.loading = true;
+    camUI.btn.textContent = '启动中…';
+    const baseVC = { width: { ideal: 1280 }, height: { ideal: 720 } };   // 贴近 OBS 原生 1280×720，避免小尺寸协商出黑帧
+    const tryGet = (id) => {
+      const vc = { ...baseVC };
+      if (id) vc.deviceId = { exact: id };
+      return navigator.mediaDevices.getUserMedia({ video: vc, audio: false });
+    };
+    const liveIdOf = (s) => { try { const t = s.getVideoTracks()[0]; return (t && t.getSettings) ? (t.getSettings().deviceId || '') : ''; } catch (_) { return ''; } };
+    try {
+      // 1) 先按"锁定/记忆"的设备开；没锁过就交给浏览器默认（会尊重 Chrome 里选的设备）
+      let wantId = (camPickManual && camUI.pick) ? camUI.pick.value : '';
+      let stream;
+      try {
+        stream = await tryGet(wantId);
+      } catch (e1) {
+        // 精确设备打不开（被占用 / OBS 刚重启 / 设备已拔）→ 退回默认设备再试一次，并把真实原因说清楚
+        if (wantId) { if (typeof camHint === 'function') camHint('指定的摄像头打不开（' + (e1.name || '') + '），先退回默认设备'); try { stream = await tryGet(''); wantId = ''; } catch (e2) { throw e1; } }
+        else throw e1;
+      }
+      cam.stream = stream;
+      // 从视频文件模式切回摄像头时，清掉 src
+      if (cam.videoUrl) { URL.revokeObjectURL(cam.videoUrl); cam.videoUrl = null; }
+      camUI.video.removeAttribute('src'); camUI.video.loop = false; cam.fileMode = false;
+      camUI.video.srcObject = stream;
+      await camUI.video.play();
+      await populateCams(true);   // 授权后设备名才可见 → 刷新列表（不覆盖已锁定的选择）
+
+      // 自动优先 OBS：没手动锁定时，一旦认出虚拟摄像头而当前跑的不是它 → 真切过去，别老停在电脑摄像头
+      if (!camPickManual && camUI.pick) {
+        const cur = camUI.pick.value;
+        const curLabel = (camUI.pick.selectedOptions[0] || {}).textContent || '';
+        if (cur && cur !== liveIdOf(stream) && isVirtCam(curLabel)) {
+          try {
+            const s2 = await tryGet(cur);
+            stream.getTracks().forEach(t => t.stop());
+            stream = s2; cam.stream = s2;
+            camUI.video.srcObject = s2; await camUI.video.play();
+            await populateCams(true);
+          } catch (_) { /* 切不过去就保留原流 */ }
+        }
+      }
+      // 让下拉如实显示"此刻真正在用的设备"；只有用户手动锁定过才持久化（避免把自动识别结果误存成"手动锁定"）
+      if (camUI.pick) {
+        const tid = liveIdOf(cam.stream);
+        const has = tid && Array.from(camUI.pick.options).some(o => o.value === tid);
+        if (has) {
+          camUI.pick.value = tid;
+          if (camPickManual) { const opt = camUI.pick.selectedOptions[0]; camStoreSet(tid, opt ? opt.textContent : ''); }
+        }
+      }
+
+      // 2) MediaPipe from local vendor (no external CDN)
+      await ensureLandmarker();
+
+      cam.active = true; cam.loading = false;
+      camUI.btn.classList.add('hidden');
+      camUI.wrap.classList.add('on');
+      // 下拉常驻可见：运行中也能随时切摄像头（原先把 hidepick 加上导致"改都改不了"）
+      cam.lastSeen = performance.now();
+      const liveName = (camUI.pick && camUI.pick.selectedOptions[0]) ? camUI.pick.selectedOptions[0].textContent : '';
+      camHint('手势：<b>正在寻找手部</b>' + (liveName ? ' · ' + liveName : ''));
+      loopCamera();
+    } catch (err) {
+      cam.loading = false;
+      if (cam.stream) { cam.stream.getTracks().forEach(t => t.stop()); cam.stream = null; }
+      camUI.btn.textContent = '✋ 手势控制';
+      camHint('摄像头打开失败（' + ((err && (err.name || err.message)) || '') + '），已回退鼠标');
+      console.warn('[hand] init failed:', err);
+    }
+  }
+
+  function stopCamera() {
+    cam.active = false;
+    if (cam.rafId) cancelAnimationFrame(cam.rafId);
+    if (cam.stream) { cam.stream.getTracks().forEach(t => t.stop()); cam.stream = null; }
+    if (cam.videoUrl) { URL.revokeObjectURL(cam.videoUrl); cam.videoUrl = null; }
+    camUI.video.srcObject = null; camUI.video.removeAttribute('src');
+    try { camUI.video.load(); } catch (_) {}
+    camUI.video.loop = false; cam.fileMode = false;
+    cam.landmarker = null;
+    // clean state for a fresh restart (stale One Euro history would jump)
+    cam.filters = Array.from({ length: 21 }, () => ({ x: new OneEuro(1.2, 0.03), y: new OneEuro(1.2, 0.03) }));
+    cam.filters2 = Array.from({ length: 21 }, () => ({ x: new OneEuro(1.2, 0.03), y: new OneEuro(1.2, 0.03) }));
+    cam.handActive = false;
+    cam.pinching = cam.fisting = cam.opening = false;
+    cam.palmPrev = cam.anglePrev = null; cam.sizePrev = 0; cam.scaleBase = 0; cam.pinchSm = 0; cam.lastDetect = 0;
+    camCtx.clearRect(0, 0, camUI.canvas.width, camUI.canvas.height);
+    gatherTarget = 0;
+    camUI.wrap.classList.remove('on');
+    camUI.btn.classList.remove('hidden');
+    camUI.btn.textContent = '✋ 手势控制';
+    if (camUI.pick) camUI.pick.classList.toggle('hidepick', camUI.pick.options.length < 2);
+  }
+
+  function loopCamera() {
+    if (!cam.active) return;
+    const v = camUI.video;
+    if (v.readyState >= 2 && cam.landmarker) {
+      const t = performance.now();
+      // 手部检测降频、并把输入缩到 256x192 再送模型：
+      // 瓶颈是 detectForVideo 同步阻塞主线程；输入越小、频率越低，越不抢渲染帧。
+      // 帧率吃紧时进一步降频（~8Hz）保渲染；宽裕时 ~13Hz。手势都是慢动作，观感无差。
+      const iv = fpsEMA < 52 ? 120 : 75;
+      if (t - cam.lastDetect >= iv) {
+        cam.lastDetect = t;
+        let res = null;
+        try {
+          if (!cam.detCv) { cam.detCv = document.createElement('canvas'); cam.detCv.width = 256; cam.detCv.height = 192; cam.detCtx = cam.detCv.getContext('2d'); }
+          cam.detCtx.drawImage(v, 0, 0, 256, 192);
+          res = cam.landmarker.detectForVideo(cam.detCv, t);
+        } catch (_) {}
+        handleHand(res, t);
+      }
+    }
+    cam.rafId = requestAnimationFrame(loopCamera);
+  }
+
+  function handleHand(res, t) {
+    const hands = [];
+    if (res && res.landmarks && res.landmarks.length) {
+      for (let hi = 0; hi < res.landmarks.length && hi < 2; hi++) {
+        const lm = res.landmarks[hi];
+        const fil = hi === 0 ? cam.filters : cam.filters2;
+        const pts = new Array(21);
+        for (let i = 0; i < 21; i++) {
+          pts[i] = { x: fil[i].x.filter(lm[i].x, t), y: fil[i].y.filter(lm[i].y, t) };
+        }
+        hands.push(pts);
+      }
+    }
+    const has = hands.length > 0;
+    cam.handActive = has;
+    if (has) {
+      cam.lastSeen = t; handSeenAt = t;
+      applyGesture(hands, t);
+      drawSkeleton(hands);
+    } else {
+      camCharging = false;                 // 丢手 → 取消蓄力
+      camCtx.clearRect(0, 0, camUI.canvas.width, camUI.canvas.height);
+      if (t - cam.lastSeen > 1200) {
+        cam.fisting = cam.pinching = cam.opening = false;
+        gatherTarget = 0;
+        camHint('手势：<b>没有检测到手</b>');
+      }
+    }
+  }
+
+  function applyGesture(hands, t) {
+    const p = hands[0];
+    const scale  = Math.max(0.04, vdist(p[0], p[9]));         // wrist -> middle MCP
+    const tips = [8, 12, 16, 20], mcp = [5, 9, 13, 17];
+    let ext = 0;
+    for (let i = 0; i < 4; i++) if (vdist(p[tips[i]], p[0]) > vdist(p[mcp[i]], p[0]) * 1.18) ext++;
+    const palmX = (p[0].x + p[5].x + p[9].x + p[17].x) / 4;   // 掌心（归一化 0..1）
+    const palmY = (p[0].y + p[5].y + p[9].y + p[17].y) / 4;
+
+    // 握拳滞回（核心玩法唯一动作）
+    const wasFist = cam.fisting;
+    const fistOn  = wasFist ? ext <= 2 : ext <= 1;
+    cam.fisting = fistOn; cam.pinching = false; cam.opening = ext >= 3;
+
+    // ---- 【移除】原先「单手推掌蓄力」：手部尺度(scale)易受前后移动误判 → 假触发；
+    //      按最终手势集只保留「握拳炸 + 手位带朝向」，蓄力路径彻底关闭 ----
+    camCharging = false;
+    const charging = false;
+
+    // ---- G 挥手横扫 → 波浪涟漪（快速水平挥手：沿体光波 + 涟漪 + 能量脉冲）----
+    const dtms = Math.max(16, t - (cam.palmT || t));
+    const pvx = cam.palmPrev ? (palmX - cam.palmPrev.x) / (dtms / 1000) : 0;
+    if (swayCooldown <= 0 && Math.abs(pvx) > 2.6 && !fistOn) {
+      waveAmp = Math.max(waveAmp, 1.0); wavePhase = 0;
+      jEnergy = Math.max(jEnergy, 0.8);
+      ripples.push({ x: W * 0.5, y: H * 0.55, r: 0, max: Math.max(W, H) * 0.8 });
+      swayCooldown = 420;
+    }
+    // ---- J 手掌上抬/下压 → 整只升起/坠落 ----
+    liftTarget = Math.max(-1, Math.min(1, (palmY - 0.5) * 2)) * 95;
+
+    // ---- 握拳→整只炸开；松拳→吸回重组 ----
+    if (fistOn && !wasFist) {
+      const power = 1 + charge * 1.15;                        // 蓄得越久炸得越猛
+      burstPower = power;
+      burstTarget = 1;                                        // 炸开
+      slowmo = Math.max(slowmo, 0.9);                         // C 炸开一瞬慢动作
+      radialBlur = Math.max(radialBlur, 0.85);                // C 轻微径向模糊
+      jFlash = Math.max(jFlash, 0.9 + 0.6 * charge);
+      jShake = Math.max(jShake, 7 + 6 * charge);
+      flashOut = 1;                         // 炸开瞬时全屏爆闪
+      jZoomV += 0.05 + 0.05 * charge;      // 冲击 zoom punch（过冲回弹）
+      jBellV += 0.14;                       // 伞盖猛张回弹
+      jFistV -= 0.15;                       // 收紧冲量
+      ripples.push({ x: W * 0.5, y: H * 0.5, r: 0, max: Math.max(W, H) * 0.9 });    // A 冲击波环①
+      ripples.push({ x: W * 0.5, y: H * 0.5, r: 0, max: Math.max(W, H) * 1.35 });   // A 冲击波环②（更快更外扩）
+      detonateX = W * 0.5; detonateY = H * 0.5;               // B 殉爆中心＝画面中心
+      detonateQueued = 150;                                   // B 二次殉爆延迟
+      if (charge > 0.2) sfxBigBurst(); else sfxBurst();
+      charge = 0; camCharging = false;                        // 蓄力释放
+    } else if (!fistOn && wasFist) {
+      burstTarget = 0;                                        // 松拳吸回重组
+      swirl = 1;                                              // E 升级为螺旋旋涡吸回
+      sfxGather();
+    }
+
+    // ---- K 拇指-食指捏合 → 缩放视角（捏合缩小、张开放大；握拳/炸散途中不抢缩放）----
+    if (!fistOn && burstAmt < 0.2) {
+      const rawR = vdist(p[4], p[8]) / Math.max(0.04, scale);   // 归一化：抵消手远离/靠近镜头造成的误判
+      cam.pinchSm = cam.pinchSm ? cam.pinchSm * 0.80 + rawR * 0.20 : rawR;   // 平滑去抖
+      const nr = Math.max(0.20, Math.min(1.40, cam.pinchSm));
+      const zt = 0.55 + (nr - 0.20) / (1.40 - 0.20) * (2.10 - 0.55);         // 0.20→0.55，1.40→2.10
+      tZoom = Math.max(0.55, Math.min(2.10, zt));
+    }
+
+    // ---- 手位带朝向（放大幅度 + 中段加灵敏 → 有掌控感；握拳时不抢方向）----
+    const u = (0.5 - palmX) * 2;                    // 镜像：手往画面左 → u>0
+    const v = (palmY - 0.5) * 2;
+    const YAW_R = 1.15, PITCH_R = 0.78;             // 大幅提升可转范围（原 0.55/0.40 太小）
+    const ue = Math.max(-1, Math.min(1, u * 1.9));   // 线性增益：手位与转角成正比，轻移即明显转、中位不抖
+    const ve = Math.max(-1, Math.min(1, v * 1.7));
+    handYaw   = Math.max(-YAW_R, Math.min(YAW_R, ue * YAW_R));
+    handPitch = Math.max(-PITCH_R * 0.7, Math.min(PITCH_R, ve * PITCH_R));
+
+    cam.sizePrev = cam.sizePrev ? cam.sizePrev * 0.75 + scale * 0.25 : scale;
+    cam.palmPrev = { x: palmX, y: palmY }; cam.palmT = t;
+
+    const hintTxt = fistOn ? '握拳 · 炸开' : (cam.pinchSm && cam.pinchSm < 0.55 ? '捏合 · 缩小' : '掌 · 方向 / 张开放大');
+    camHint('手势：<b>' + hintTxt + '</b>');
+  }
+
+  function drawSkeleton(hands) {
+    const cw = camUI.canvas.width, ch = camUI.canvas.height;
+    camCtx.clearRect(0, 0, cw, ch);
+    camCtx.lineWidth = 2;
+    camCtx.strokeStyle = 'rgba(120,220,255,.85)';
+    camCtx.fillStyle = 'rgba(160,240,255,.95)';
+    for (let h = 0; h < hands.length; h++) {
+      const p = hands[h];
+      for (let k = 0; k < HAND_CONNECTIONS.length; k++) {
+        const a = HAND_CONNECTIONS[k][0], b = HAND_CONNECTIONS[k][1];
+        camCtx.beginPath();
+        camCtx.moveTo((1 - p[a].x) * cw, p[a].y * ch);
+        camCtx.lineTo((1 - p[b].x) * cw, p[b].y * ch);
+        camCtx.stroke();
+      }
+      for (let i = 0; i < 21; i++) {
+        camCtx.beginPath();
+        camCtx.arc((1 - p[i].x) * cw, p[i].y * ch, i % 4 === 0 ? 3 : 2, 0, Math.PI * 2);
+        camCtx.fill();
+      }
+    }
+  }
+})();
+</script>
+</body>
+</html>
